@@ -1218,13 +1218,19 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
     }
     ImGui::PopStyleColor(3);
     auto &results = callResults.at(method);
-    if (!results.empty())
+    ImGui::Separator();
+    ImGui::Text("%s (%zu)", Lang::T("调用日志:", "Call Log:"), results.size());
+    ImGui::SameLine();
+    if (ImGui::SmallButton(Lang::T("清除", "Clear")))
+        results.clear();
+    // 调用日志文本框：固定高度可滚动区域
+    ImGui::BeginChild("##callLog", ImVec2(0, 180), ImGuiChildFlags_Borders);
+    if (results.empty())
     {
-        ImGui::Separator();
-        ImGui::Text("%s (%zu)", Lang::T("调用结果:", "Call Results:"), results.size());
-        ImGui::SameLine();
-        if (ImGui::SmallButton(Lang::T("清除", "Clear")))
-            results.clear();
+        ImGui::TextDisabled("%s", Lang::T("暂无调用记录", "No call history"));
+    }
+    else
+    {
         int ri = 0;
         // 反向迭代：最新的调用结果显示在最上面
         for (auto it = results.rbegin(); it != results.rend(); ++it)
@@ -1273,6 +1279,7 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
             ImGui::Separator();
         }
     }
+    ImGui::EndChild();
 }
 
 bool ClassesTab::isMethodHooked(MethodInfo *method)
