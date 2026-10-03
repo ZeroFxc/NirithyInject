@@ -1,5 +1,6 @@
 #include "Script.h"
 #include <cctype>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <sys/mman.h>
@@ -8,7 +9,10 @@
 #include "Il2cpp/il2cpp-class.h"
 #include "Includes/Logger.h"
 #include "KittyMemory/KittyMemory.h"
+#include "Tool/Keyboard.h"
+#include "Tool/Lang.h"
 #include "Tool/Tool.h"
+#include "imgui/imgui.h"
 
 // Lua 头文件按 C 语言声明，必须用 extern "C" 包裹以免符号被 C++ 名称修饰
 extern "C"
@@ -25,6 +29,28 @@ void ConfigSetJson(const char *key, const char *jsonValue);
 namespace
 {
     lua_State *g_L = nullptr;
+
+    // 脚本选项卡 UI 状态
+    constexpr size_t kMaxCodeSize = 16384; // 多行编辑框缓冲区大小
+    constexpr size_t kMaxLogLines = 200;   // 日志区最多保留的行数
+    char g_codeBuf[kMaxCodeSize] = {0};    // 编辑框缓冲区（地址固定，供 ImGui 跨帧持有）
+    std::string g_code;                    // 当前脚本内容（与编辑框保持同步）
+    bool g_codeLoaded = false;             // 是否已从配置载入脚本
+    std::vector<std::string> g_logs;       // 日志区内容
+
+    // 追加一行日志（超过上限时丢弃最旧的记录）
+    void AppendLog(const std::string &line)
+    {
+        g_logs.push_back(line);
+        if (g_logs.size() > kMaxLogLines)
+            g_logs.erase(g_logs.begin());
+    }
+
+    // 将当前脚本内容持久化到全局配置（tool_conf.json 的 luaScript 字段）
+    void SaveCode()
+    {
+        ConfigSetJson("luaScript", nlohmann::json(g_code).dump().c_str());
+    }
 
     // 将 Lua 值（栈索引 idx）转为 JSON 值；仅原生支持 nil/布尔/数字/字符串，其它类型退化为字符串
     nlohmann::json LuaToJson(lua_State *L, int idx)
@@ -87,6 +113,7 @@ namespace
             lua_pop(L, 1); // 弹出 luaL_tolstring 压入的字符串
         }
         LOGI("[Lua] %s", out.c_str());
+        AppendLog(out);
         return 0;
     }
 
@@ -446,6 +473,76 @@ bool Script::Run(const std::string &code, const std::string &name, std::string &
 
     error.clear();
     return true;
+}
+
+void Script::Draw()
+{
+    // 首次绘制时从配置载入上次保存的脚本
+    if (!g_codeLoaded)
+    {
+        g_codeLoaded = true;
+        nlohmann::json j = nlohmann::json::parse(ConfigGetJson("luaScript"), nullptr, false);
+        if (j.is_string())
+        {
+            g_code = j.get<std::string>();
+            snprintf(g_codeBuf, sizeof(g_codeBuf), "%s", g_code.c_str());
+        }
+    }
+
+    if (!IsReady())
+    {
+        ImGui::TextWrapped("%s", Lang::T("脚本引擎未初始化", "Script engine is not initialized"));
+        return;
+    }
+
+    if (ImGui::Button(Lang::T("执行", "Run")))
+    {
+        std::string error;
+        if (Run(g_code, "lua_script", error))
+            AppendLog(Lang::T("[脚本] 执行完成", "[script] run completed"));
+        else
+            AppendLog(error);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(Lang::T("软键盘编辑", "Edit via keyboard")))
+    {
+        // ImGui 未接入输入法，这里用系统软键盘编辑脚本
+        Keyboard::Open(g_code.c_str(),
+                       [](const std::string &text)
+                       {
+                           g_code = text;
+                           snprintf(g_codeBuf, sizeof(g_codeBuf), "%s", g_code.c_str());
+                           SaveCode();
+                       });
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(Lang::T("清空脚本", "Clear script")))
+    {
+        g_code.clear();
+        g_codeBuf[0] = '\0';
+        SaveCode();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(Lang::T("清空日志", "Clear log")))
+    {
+        g_logs.clear();
+    }
+
+    ImGui::Separator();
+    if (ImGui::InputTextMultiline("##luaCode", g_codeBuf, sizeof(g_codeBuf), ImVec2(-1, 220)))
+    {
+        g_code = g_codeBuf;
+        SaveCode();
+    }
+
+    ImGui::Separator();
+    ImGui::Text("%s", Lang::T("日志", "Log"));
+    ImGui::BeginChild("##luaLog", ImVec2(0, 160), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+    for (const auto &line : g_logs)
+        ImGui::TextUnformatted(line.c_str());
+    if (!g_logs.empty())
+        ImGui::SetScrollHereY(1.0f);
+    ImGui::EndChild();
 }
 
 void Script::Shutdown()

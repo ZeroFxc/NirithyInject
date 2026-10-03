@@ -71,6 +71,8 @@ bool tabShowDumper = true;
 bool tabShowSettings = true;
 // 内存查看选项卡（默认隐藏）
 bool tabShowMemory = false;
+// 脚本选项卡（默认隐藏）
+bool tabShowScript = false;
 
 // 自动转储：进入转储页面后自动开始一次转储
 bool autoDump = false;
@@ -352,6 +354,14 @@ void draw_thread()
                 ImGui::EndTabItem();
             }
         }
+        if (tabShowScript)
+        {
+            if (ImGui::BeginTabItem(Lang::T("脚本", "Script")))
+            {
+                Script::Draw();
+                ImGui::EndTabItem();
+            }
+        }
         if (tabShowMemory)
         {
             if (ImGui::BeginTabItem(Lang::T("内存", "Memory")))
@@ -375,6 +385,8 @@ void draw_thread()
                 ConfigSet("tabShowDumper", tabShowDumper);
             if (ImGui::Checkbox(Lang::T("内存", "Memory"), &tabShowMemory))
                 ConfigSet("tabShowMemory", tabShowMemory);
+            if (ImGui::Checkbox(Lang::T("脚本", "Script"), &tabShowScript))
+                ConfigSet("tabShowScript", tabShowScript);
             if (ImGui::Checkbox(Lang::T("设置", "Settings"), &tabShowSettings))
                 ConfigSet("tabShowSettings", tabShowSettings);
             if (ImGui::Checkbox(Lang::T("双指滚动", "Two-finger scroll"), &twoFingerScroll))
@@ -743,6 +755,7 @@ void on_init()
     tabShowDumper = ConfigGet<bool>("tabShowDumper", true);
     tabShowSettings = ConfigGet<bool>("tabShowSettings", true);
     tabShowMemory = ConfigGet<bool>("tabShowMemory", false);
+    tabShowScript = ConfigGet<bool>("tabShowScript", false);
     autoDump = ConfigGet<bool>("autoDump", false);
     twoFingerScroll = ConfigGet<bool>("twoFingerScroll", true);
     touchPassthrough = ConfigGet<bool>("touchPassthrough", false);

@@ -21,6 +21,9 @@ namespace Script
     // 返回：true 表示编译并执行成功
     bool Run(const std::string &code, const std::string &name, std::string &error);
 
+    // 绘制脚本选项卡内容：多行编辑框、执行按钮与日志区
+    void Draw();
+
     // 关闭引擎并释放 Lua 状态机
     void Shutdown();
 } // namespace Script
