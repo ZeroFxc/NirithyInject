@@ -17,6 +17,7 @@
 #include <cmath>
 #include <dlfcn.h>
 #include <atomic>
+#include <cstdint>
 #include "EGL/egl.h"
 #include <android/input.h>
 
@@ -61,15 +62,20 @@ int getGlHeight()
     ret (*orig##func)(__VA_ARGS__);                                                                                    \
     ret my##func(__VA_ARGS__)
 
+// InputConsumer::initializeMotionEvent(MotionEvent *event, const InputMessage *msg)
+// 注意：thiz 是 InputConsumer* 本身，第 2 个参数（ex_ab）才是 MotionEvent*，
+// 也只有它才是合法的 AInputEvent*；此前误把 thiz 传进去会把垃圾内存当作输入事件解析。
 HOOKINPUT(void, Input, void *thiz, void *ex_ab, void *ex_ac)
 {
     origInput(thiz, ex_ab, ex_ac);
     if (isInitialized)
-        ImGui_ImplAndroid_HandleInputEvent((AInputEvent *)thiz);
+        ImGui_ImplAndroid_HandleInputEvent((AInputEvent *)ex_ab);
     return;
 }
 
-HOOKINPUT(int32_t, Consume, void *thiz, void *arg1, bool arg2, long arg3, uint32_t *arg4, AInputEvent **input_event)
+// input_event 由参数 arg4、input_event 正确传递
+// 注意：arg3(frameTime) 真实类型为 nsecs_t(int64_t)，32 位 ABI 下 long 仅 32 位会导致后续参数错位
+HOOKINPUT(int32_t, Consume, void *thiz, void *arg1, bool arg2, int64_t arg3, uint32_t *arg4, AInputEvent **input_event)
 {
     auto result = origConsume(thiz, arg1, arg2, arg3, arg4, input_event);
     if (result != 0 || input_event == nullptr || *input_event == nullptr)
@@ -101,16 +107,25 @@ static void applyFpsLimit()
     }
 }
 
+// 解析指定库中的符号
+// 参数 lib：库名或绝对路径；sym：符号名
+// 返回值：符号地址，找不到时返回 nullptr
+// 说明：这里刻意不使用 DobbySymbolResolver。当符号无法通过 dlsym 找到时，它会遍历
+// 并 mmap 进程内所有模块，再逐个按磁盘文件解析 ELF 头；一旦遇到内存镜像与磁盘文件
+// 不一致的库（加固 / 解密 / 被截断），e_phoff 会解析成非法值，随后在 elf_ctx_init
+// 中解引用野指针直接 SIGSEGV（已在 04_10-02-24-28_907.log 中确认该崩溃栈）。
 static void *resolveSym(const char *lib, const char *sym)
 {
-    void *p = DobbySymbolResolver(lib, sym);
-    if (p)
-        return p;
-    void *h = dlopen(lib, RTLD_NOW | RTLD_NOLOAD);
-    if (!h)
-        h = dlopen(lib, RTLD_NOW);
-    if (h)
-        p = dlsym(h, sym);
+    // 1) 目标库已加载时，直接在其导出表中查找（RTLD_NOLOAD 不会触发真正的加载）
+    if (void *h = dlopen(lib, RTLD_NOW | RTLD_NOLOAD))
+    {
+        if (void *p = dlsym(h, sym))
+            return p;
+    }
+    // 2) 退化为全局符号域查找，等价于 DobbySymbolResolver 的第一步，但不会扫描全部模块
+    void *p = dlsym(RTLD_DEFAULT, sym);
+    if (!p)
+        LOGI("symbol not found: %s (lib %s)", sym, lib);
     return p;
 }
 
@@ -134,8 +149,23 @@ static bool hookAddr(void *addr, void *hook, void **orig, const char *tag)
     return false;
 }
 
+// 线程局部重入标志：若驱动把 eglSwapBuffers 实现为内部调用 WithDamage 变体（或反之），
+// 一次交换会嵌套触发两个钩子；用该标志保证同一线程一次交换的调用链中只绘制一次
+static thread_local bool g_inSwap = false;
+
 static EGLBoolean swap_damage_hook(EGLDisplay dpy, EGLSurface surf, EGLint *rects, EGLint n)
 {
+    // 重入保护：内层嵌套调用只转发原始函数，不重复绘制
+    if (g_inSwap)
+    {
+        if (o_swap_damage)
+            return o_swap_damage(dpy, surf, rects, n);
+        if (o_swapbuffers)
+            return o_swapbuffers(dpy, surf);
+        return EGL_TRUE;
+    }
+    g_inSwap = true;
+
     EGLint w = 0, h = 0;
     eglQuerySurface(dpy, surf, EGL_WIDTH, &w);
     eglQuerySurface(dpy, surf, EGL_HEIGHT, &h);
@@ -146,11 +176,17 @@ static EGLBoolean swap_damage_hook(EGLDisplay dpy, EGLSurface surf, EGLint *rect
         setupMenu();
         internalDrawMenu(w, h);
     }
+
+    EGLBoolean ret;
     if (o_swap_damage)
-        return o_swap_damage(dpy, surf, rects, n);
-    if (o_swapbuffers)
-        return o_swapbuffers(dpy, surf);
-    return EGL_TRUE;
+        ret = o_swap_damage(dpy, surf, rects, n);
+    else if (o_swapbuffers)
+        ret = o_swapbuffers(dpy, surf);
+    else
+        ret = EGL_TRUE;
+
+    g_inSwap = false;
+    return ret;
 }
 
 void installOverlayHooks()
@@ -607,6 +643,15 @@ static bool isOverlaySizeChanged(int width, int height)
 
 EGLBoolean swapbuffers_hook(EGLDisplay dpy, EGLSurface surf)
 {
+    // 重入保护：内层嵌套调用只转发原始函数，不重复绘制
+    if (g_inSwap)
+    {
+        if (o_swapbuffers)
+            return o_swapbuffers(dpy, surf);
+        return EGL_TRUE;
+    }
+    g_inSwap = true;
+
     EGLint w, h;
     eglQuerySurface(dpy, surf, EGL_WIDTH, &w);
     eglQuerySurface(dpy, surf, EGL_HEIGHT, &h);
@@ -633,7 +678,7 @@ EGLBoolean swapbuffers_hook(EGLDisplay dpy, EGLSurface surf)
     setupMenu();
     internalDrawMenu(w, h);
 
-    if (o_swapbuffers)
-        return o_swapbuffers(dpy, surf);
-    return EGL_TRUE;
+    EGLBoolean ret = o_swapbuffers ? o_swapbuffers(dpy, surf) : EGL_TRUE;
+    g_inSwap = false;
+    return ret;
 }
