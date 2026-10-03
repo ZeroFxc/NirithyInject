@@ -1837,21 +1837,51 @@ bool ClassesTab::MethodViewer(Il2CppClass *klass, MethodInfo *method, const Meth
             Util::prependStringToBuffer(treeLabel, "[P] ");
     }
 
-    bool selected = methodCard.open && methodCard.method == method;
-    bool clicked = ImGui::Selectable(treeLabel, selected);
+    bool open = ImGui::TreeNodeEx(treeLabel, ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth);
     if (pushedColor)
         ImGui::PopStyleColor(pushedColor);
-    if (clicked)
+    if (open)
     {
-        methodCard.owner = this;
-        methodCard.klass = klass;
-        methodCard.method = method;
-        methodCard.params = paramsInfo;
-        methodCard.thiz = thiz;
-        methodCard.open = true;
+        if (ImGui::BeginTabBar("##methodInlineTabs"))
+        {
+            if (ImGui::BeginTabItem(Lang::tr("tab.info")))
+            {
+                ImGui::Text("%s: %s", Lang::T("类", "Class"), klass->getFullName().c_str());
+                ImGui::Text("%s: %s", Lang::tr("method.signature"), method->getName());
+                ImGui::Text("%s: %s", Lang::T("返回", "Return"), method->getReturnType()->getName());
+                ImGui::Text("%s: %s", Lang::T("种类", "Kind"),
+                            methodIsStatic ? Lang::tr("method.static") : Lang::tr("method.instance"));
+                auto absAddress = method->getAbsAddress();
+                ImGui::Text("%s: %p", Lang::tr("method.address"), reinterpret_cast<void *>(absAddress));
+                ImGui::SameLine();
+                CopyAddressButton("methodAddrInline", reinterpret_cast<void *>(absAddress));
+                ImGui::Separator();
+                ImGui::Text("%s (%zu)", Lang::T("参数", "Parameters"), paramsInfo.size());
+                for (size_t i = 0; i < paramsInfo.size(); i++)
+                    ImGui::BulletText("%s %s", paramsInfo[i].second->getName(), paramsInfo[i].first);
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem(Lang::tr("tab.call")))
+            {
+                CallerView(klass, method, paramsInfo, thiz);
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem(Lang::tr("tab.patch")))
+            {
+                PatcherView(klass, method, paramsInfo, thiz);
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem(Lang::tr("tab.trace")))
+            {
+                HookerView(klass, method, paramsInfo, thiz);
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+        ImGui::TreePop();
     }
     poper.Update();
-    return selected;
+    return open;
 }
 
 void ClassesTab::DrawMethodDetailCard()
