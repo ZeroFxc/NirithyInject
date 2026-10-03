@@ -2116,10 +2116,10 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
             for (auto m : klass->getMethods())
                 methods.push_back({m, m->getParamsInfo()});
         }
-        // 方法节点可展开导致行高不固定，用估算行高50px的clipper只渲染可见部分，
-        // 避免大方法数类展开时每帧渲染全部节点导致拖拽卡顿。
+        // 方法节点可展开导致行高不固定，不传ItemsHeight让clipper自动测量，
+        // 只渲染可见部分避免大方法数类卡顿，同时避免固定估算行高导致滚动跳动。
         ImGuiListClipper clipper;
-        clipper.Begin((int)methods.size(), 50.0f);
+        clipper.Begin((int)methods.size());
         while (clipper.Step())
         {
             for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
