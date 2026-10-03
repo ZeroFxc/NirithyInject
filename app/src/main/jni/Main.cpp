@@ -57,6 +57,12 @@ extern int g_fpsLimit;
 
 bool doChangeScale = false;
 
+// 主选项卡显示开关（脚本/资源管理器等预留项默认隐藏）
+bool tabShowTools = true;
+bool tabShowTracer = true;
+bool tabShowDumper = true;
+bool tabShowSettings = true;
+
 constexpr std::array<const char *, 7> possibleScale = {
     "Smallest", "Smaller", "Small", "Default", "Large", "Larger", "Largest",
 };
@@ -163,23 +169,26 @@ void draw_thread()
     static bool changeToToolsTab = false;
     if (ImGui::BeginTabBar("mainTabber"))
     {
-        if (ImGui::BeginTabItem(Lang::T("工具", "Tools"), nullptr, changeToToolsTab ? ImGuiTabItemFlags_SetSelected : 0))
+        if (tabShowTools)
         {
-            changeToToolsTab = false;
-            if (ImGui::Checkbox(Lang::T("全屏", "Fullscreen"), &fullScreen))
+            if (ImGui::BeginTabItem(Lang::T("工具", "Tools"), nullptr, changeToToolsTab ? ImGuiTabItemFlags_SetSelected : 0))
             {
-                if (fullScreen)
+                changeToToolsTab = false;
+                if (ImGui::Checkbox(Lang::T("全屏", "Fullscreen"), &fullScreen))
                 {
-                    lastSize = ImGui::GetWindowSize();
-                    lastPos = ImGui::GetWindowPos();
+                    if (fullScreen)
+                    {
+                        lastSize = ImGui::GetWindowSize();
+                        lastPos = ImGui::GetWindowPos();
+                    }
+                    resetWindow = true;
                 }
-                resetWindow = true;
+                Tool::Draw();
+                ImGui::EndTabItem();
             }
-            Tool::Draw();
-            ImGui::EndTabItem();
         }
 
-        if (!hookerMap.empty())
+        if (tabShowTracer && !hookerMap.empty())
         {
             if (ImGui::BeginTabItem(Lang::T("跟踪器", "Tracer")))
             {
@@ -258,15 +267,30 @@ void draw_thread()
                 ImGui::EndTabItem();
             }
         }
-        if (ImGui::BeginTabItem(Lang::T("转储", "Dumper")))
+        if (tabShowDumper)
         {
-            Tool::Dumper();
-            ImGui::EndTabItem();
+            if (ImGui::BeginTabItem(Lang::T("转储", "Dumper")))
+            {
+                Tool::Dumper();
+                ImGui::EndTabItem();
+            }
         }
-        if (ImGui::BeginTabItem(Lang::T("设置", "Settings")))
+        if (tabShowSettings)
         {
+            if (ImGui::BeginTabItem(Lang::T("设置", "Settings")))
+            {
             ImGui::Separator();
             ImGui::Text("%s", Lang::T("显示", "Display"));
+            ImGui::TextDisabled("%s", Lang::T("选项卡:", "Tabs:"));
+            if (ImGui::Checkbox(Lang::T("工具", "Tools"), &tabShowTools))
+                ConfigSet("tabShowTools", tabShowTools);
+            if (ImGui::Checkbox(Lang::T("跟踪器", "Tracer"), &tabShowTracer))
+                ConfigSet("tabShowTracer", tabShowTracer);
+            if (ImGui::Checkbox(Lang::T("转储", "Dumper"), &tabShowDumper))
+                ConfigSet("tabShowDumper", tabShowDumper);
+            if (ImGui::Checkbox(Lang::T("设置", "Settings"), &tabShowSettings))
+                ConfigSet("tabShowSettings", tabShowSettings);
+            ImGui::Separator();
             auto preview = possibleScale[selectedScale];
             if (ImGui::BeginCombo(Lang::T("缩放##Global", "Scale##Global"), preview))
             {
@@ -408,6 +432,7 @@ void draw_thread()
 
             ImGui::Separator();
             ImGui::EndTabItem();
+            }
         }
         ImGui::EndTabBar();
     }
@@ -537,6 +562,10 @@ void on_init()
     Lang::current = ConfigGet<int>("lang", 0);
     fpsLimit = ConfigGet<int>("fpsLimit", 0);
     g_fpsLimit = fpsLimit;
+    tabShowTools = ConfigGet<bool>("tabShowTools", true);
+    tabShowTracer = ConfigGet<bool>("tabShowTracer", true);
+    tabShowDumper = ConfigGet<bool>("tabShowDumper", true);
+    tabShowSettings = ConfigGet<bool>("tabShowSettings", true);
     if (selectedScale < 0 || selectedScale >= scaleFactors.size())
     {
         selectedScale = 3;
