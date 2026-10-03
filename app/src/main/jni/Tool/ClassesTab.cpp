@@ -625,7 +625,10 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
         if (ImGui::Button(buttonLabel))
         {
             bool isString = strcmp(type->getName(), "System.String") == 0;
-            if (type->isPrimitive() || isString)
+            // IntPtr/UIntPtr 不是 primitive，但同样按数值输入处理
+            bool isPointer = strcmp(type->getName(), "System.IntPtr") == 0 ||
+                             strcmp(type->getName(), "System.UIntPtr") == 0;
+            if (type->isPrimitive() || isString || isPointer)
             {
                 if (strcmp(type->getName(), "System.Boolean") == 0)
                 {
@@ -746,6 +749,52 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
                 else if (strcmp(type->getName(), "System.Double") == 0)
                 {
                     ValueType<double> value{std::stod(param.value)};
+                    auto boxedValue = value.box(type->getClass());
+                    arrayParams[k] = boxedValue;
+                }
+                else if (strcmp(type->getName(), "System.Int16") == 0)
+                {
+                    ValueType<int16_t> value{static_cast<int16_t>(std::stoi(param.value))};
+                    auto boxedValue = value.box(type->getClass());
+                    arrayParams[k] = boxedValue;
+                }
+                else if (strcmp(type->getName(), "System.UInt16") == 0)
+                {
+                    ValueType<uint16_t> value{static_cast<uint16_t>(std::stoul(param.value))};
+                    auto boxedValue = value.box(type->getClass());
+                    arrayParams[k] = boxedValue;
+                }
+                else if (strcmp(type->getName(), "System.SByte") == 0)
+                {
+                    ValueType<int8_t> value{static_cast<int8_t>(std::stoi(param.value))};
+                    auto boxedValue = value.box(type->getClass());
+                    arrayParams[k] = boxedValue;
+                }
+                else if (strcmp(type->getName(), "System.Byte") == 0)
+                {
+                    ValueType<uint8_t> value{static_cast<uint8_t>(std::stoul(param.value))};
+                    auto boxedValue = value.box(type->getClass());
+                    arrayParams[k] = boxedValue;
+                }
+                else if (strcmp(type->getName(), "System.Char") == 0)
+                {
+                    // 支持直接输入单个字符（取其码点）或输入十进制码点
+                    uint16_t code = param.value.size() == 1
+                                        ? static_cast<uint16_t>(static_cast<unsigned char>(param.value[0]))
+                                        : static_cast<uint16_t>(std::stoul(param.value));
+                    ValueType<uint16_t> value{code};
+                    auto boxedValue = value.box(type->getClass());
+                    arrayParams[k] = boxedValue;
+                }
+                else if (strcmp(type->getName(), "System.IntPtr") == 0)
+                {
+                    ValueType<intptr_t> value{static_cast<intptr_t>(std::stoull(param.value))};
+                    auto boxedValue = value.box(type->getClass());
+                    arrayParams[k] = boxedValue;
+                }
+                else if (strcmp(type->getName(), "System.UIntPtr") == 0)
+                {
+                    ValueType<uintptr_t> value{static_cast<uintptr_t>(std::stoull(param.value))};
                     auto boxedValue = value.box(type->getClass());
                     arrayParams[k] = boxedValue;
                 }
