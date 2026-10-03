@@ -732,7 +732,8 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
     ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(30, 200, 25, 128));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(30, 200, 25, 255));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(30, 200, 25, 255));
-    if (ImGui::Button("Call", ImVec2(io.DisplaySize.x / 2, 0)))
+    // 调用逻辑抽成 lambda，供 Call 与 Recall 复用
+    auto doCall = [&]()
     {
         auto paramsInfo = method->getParamsInfo();
         auto params = paramMap[method];
@@ -984,6 +985,16 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
         }
         if (arrayParams)
             delete[] arrayParams;
+    };
+    float callBtnWidth = io.DisplaySize.x / 3;
+    if (ImGui::Button("Call", ImVec2(callBtnWidth, 0)))
+    {
+        doCall();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(Lang::T("再次调用", "Recall"), ImVec2(callBtnWidth, 0)))
+    {
+        doCall();
     }
     ImGui::PopStyleColor(3);
     if (!callResults.at(method).empty())
