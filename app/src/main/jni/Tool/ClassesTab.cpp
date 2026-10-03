@@ -2408,16 +2408,6 @@ void ClassesTab::Draw(int index, bool closeable)
             ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
             if (ImGui::Begin(listWinId, nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_HorizontalScrollbar))
             {
-                // 统计当前展开的类数量（遍历所有类，不只是可见的，避免 clipper 漏计）
-                int currentExpanded = 0;
-                for (auto k : filteredClasses)
-                {
-                    if (states[k])
-                        currentExpanded++;
-                }
-                expandedClassCount = currentExpanded;
-                sideSplit = currentExpanded > 0;
-
                 ImGuiListClipper clipper;
                 clipper.Begin((int)filteredClasses.size());
                 while (clipper.Step())
@@ -2433,19 +2423,9 @@ void ClassesTab::Draw(int index, bool closeable)
                             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(222, 222, 222, 255));
                             pushedColor++;
                         }
-                        ImGuiTreeNodeFlags nodeFlags = ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_AllowOverlap;
-                        if (selectedClass == klass)
-                            nodeFlags |= ImGuiTreeNodeFlags_Selected;
+                        ImGuiTreeNodeFlags nodeFlags = ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanFullWidth;
                         bool collapsingHeader = ImGui::TreeNodeEx(klass->getFullName().c_str(), nodeFlags);
                         states[klass] = collapsingHeader;
-                        if (ImGui::IsItemClicked())
-                            selectedClass = klass;
-                        // 钉入/移除顶部子标签卡按钮（AllowOverlap 允许按钮重叠在节点行尾）
-                        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 28);
-                        char pinBtnId[32];
-                        snprintf(pinBtnId, sizeof(pinBtnId), "%s##pin_%p", Tool::IsClassPinned(klass) ? "x" : "+", (void *)klass);
-                        if (ImGui::SmallButton(pinBtnId))
-                            Tool::ToggleClassTab(klass);
                         if (filterByMethod && ImGui::IsItemHeld(0.7f))
                         {
                             auto name = Util::extractClassNameFromTypename(klass->getFullName().c_str());
@@ -2456,17 +2436,23 @@ void ClassesTab::Draw(int index, bool closeable)
                         }
                         if (collapsingHeader)
                         {
-                            if (!sideSplit)
+                            if (pushedColor)
                             {
-                                if (pushedColor)
-                                {
-                                    ImGui::PopStyleColor(pushedColor);
-                                    pushedColor = 0;
-                                }
-                                // ClassViewer 内部已按类指针 PushID/PopID，这里不再重复压栈
-                                // TODO: Rename Dump (DumpPopup and other related functions used) to Inspect
-                                ClassViewer(klass);
+                                ImGui::PopStyleColor(pushedColor);
+                                pushedColor = 0;
                             }
+                            // 展开内容顶部：钉入/移除选项卡按钮（替代原来的行尾加号）
+                            char pinBtnId[64];
+                            snprintf(pinBtnId, sizeof(pinBtnId), "%s##pinInClass_%p",
+                                     Tool::IsClassPinned(klass) ? Lang::T("从选项卡移除", "Remove from tabs") : Lang::T("钉入选项卡", "Pin to tabs"),
+                                     (void *)klass);
+                            if (ImGui::Button(pinBtnId))
+                                Tool::ToggleClassTab(klass);
+                            ImGui::SameLine();
+                            ImGui::TextDisabled("%s", Lang::T("长按类名0.7秒可按方法名新建筛选标签页", "Long-press class name 0.7s to filter by method"));
+                            ImGui::Separator();
+                            // ClassViewer 内部已按类指针 PushID/PopID
+                            ClassViewer(klass);
                             ImGui::TreePop();
                         }
                         if (pushedColor)
@@ -2477,21 +2463,6 @@ void ClassesTab::Draw(int index, bool closeable)
                     }
                 }
                 ImGui::ScrollWhenDraggingOnVoid();
-            }
-            ImGui::End();
-        }
-        // sideSplit：类详情独立窗口停靠到 DockSpace（双列显示）
-        if (sideSplit)
-        {
-            char detailWinId[64];
-            snprintf(detailWinId, sizeof(detailWinId), "类详情###ClassDetail_%d", index);
-            ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
-            if (ImGui::Begin(detailWinId, nullptr, ImGuiWindowFlags_NoCollapse))
-            {
-                if (selectedClass)
-                    ClassViewer(selectedClass);
-                else
-                    ImGui::TextDisabled("%s", Lang::T("从左侧选择一个类", "Select a class on the left"));
             }
             ImGui::End();
         }
