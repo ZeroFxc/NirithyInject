@@ -1,5 +1,7 @@
 #include "Keyboard.h"
 #include "Il2cpp/Il2cpp.h"
+#include "Tool/Lang.h"
+#include "imgui/imgui.h"
 #include "string"
 
 namespace Keyboard
@@ -97,6 +99,21 @@ namespace Keyboard
 
     void Update()
     {
+        // 可移动输入状态弹窗：系统键盘弹出时显示，可拖动位置
+        if (openedKeyboard)
+        {
+            ImGui::SetNextWindowPos(ImVec2(20, 20), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(260, 0), ImGuiCond_FirstUseEver);
+            ImGui::Begin(Lang::T("键盘输入", "Keyboard Input"), nullptr,
+                         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize);
+            ImGui::Text("%s", Lang::T("系统键盘已打开...", "System keyboard opened..."));
+            if (ImGui::Button(Lang::T("取消", "Cancel")))
+            {
+                Reset();
+            }
+            ImGui::End();
+        }
+
         if (!openedKeyboard)
             return;
 
