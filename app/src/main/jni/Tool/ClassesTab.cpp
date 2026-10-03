@@ -10,6 +10,8 @@
 #include "Tool/Util.h"
 #include "KittyMemory/KittyMemory.h"
 #include "imgui/imgui.h"
+#include <atomic>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
@@ -299,16 +301,18 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
         ImGui::PopID();
         return;
     }
-    static std::unordered_map<void *, bool> scanState;
-    auto &scanning = scanState[klass];
+    static std::unordered_map<void *, std::shared_ptr<std::atomic<bool>>> scanState;
+    auto &scanningPtr = scanState[klass];
+    if (!scanningPtr)
+        scanningPtr = std::make_shared<std::atomic<bool>>(false);
+    auto &scanning = *scanningPtr;
 
     // 手动输入对象地址：输入十六进制地址后校验对象类型，避免误用其它类型地址导致崩溃
-    static char addressBuffer[64]{0};
     if (ImGui::Button(Lang::T("输入对象地址", "Enter object address")))
     {
         Keyboard::Open(
             addressBuffer,
-            [klass, onSelect](const std::string &text)
+            [klass, onSelect, this](const std::string &text)
             {
                 snprintf(addressBuffer, sizeof(addressBuffer), "%s", text.c_str());
                 if (text.empty())
@@ -350,12 +354,12 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
 
     if (ImGui::Button(Lang::T("查找对象", "Find Objects")))
     {
-        scanning = true;
+        scanning.store(true);
         std::thread(
-            [&scanning](Il2CppClass *klass)
+            [scanningPtr](Il2CppClass *klass)
             {
                 objectMap[klass] = Il2cpp::GC::FindObjects(klass);
-                scanning = false;
+                scanningPtr->store(false);
             },
             klass)
             .detach();
@@ -373,7 +377,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
             ImGui::SeparatorText("Result Object");
             if (objects.empty())
             {
-                if (scanning)
+                if (scanning.load())
                 {
                     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(50, 255, 50, 255));
                 }
@@ -381,7 +385,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                 {
                     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 50, 50, 255));
                 }
-                if (scanning)
+                if (scanning.load())
                 {
                     ImGui::Text("%s", Lang::tr("obj.scanning"));
                 }

@@ -136,6 +136,8 @@ struct ClassesTab
     std::string title = ""; // 标签页标题（类短名），空时回退到 filter
     // 搜索框文本缓冲（与 filter 同步；点击后唤起系统键盘输入）
     char searchBuf[256] = {0};
+    // 对象地址输入缓冲（每个标签页独立，避免 static 共享导致串页）
+    char addressBuffer[64] = {0};
     int selectedImageIndex = -1;
     bool traceState = false;
 
