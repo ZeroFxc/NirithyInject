@@ -15,13 +15,14 @@ static bool g_inputHooked = false;
 extern bool collapsed;
 extern bool fullScreen;
 extern bool twoFingerScroll;
+extern bool touchPassthrough;
 
 bool Input_GetMouseButton(int n)
 {
     ImGuiIO &io = ImGui::GetIO();
 
     ImVec2 size{ImGui::GetFrameHeight() * 2.f, ImGui::GetFrameHeight() * 2.f};
-    if (io.WantCaptureMouse && !(collapsed && fullScreen && (io.MousePos.x > size.x && io.MousePos.y > size.y)))
+    if (!touchPassthrough && io.WantCaptureMouse && !(collapsed && fullScreen && (io.MousePos.x > size.x && io.MousePos.y > size.y)))
         return false;
     if (oInput_GetMouseButton)
         return oInput_GetMouseButton(n);
@@ -77,7 +78,7 @@ int get_touchCount()
     }
 
     ImVec2 size{ImGui::GetFrameHeight() * 2.f, ImGui::GetFrameHeight() * 2.f};
-    if (io.WantCaptureMouse && !(collapsed && fullScreen && (io.MousePos.x > size.x && io.MousePos.y > size.y)))
+    if (!touchPassthrough && io.WantCaptureMouse && !(collapsed && fullScreen && (io.MousePos.x > size.x && io.MousePos.y > size.y)))
     {
         return 0;
     }

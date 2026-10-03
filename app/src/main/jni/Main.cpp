@@ -66,6 +66,9 @@ bool tabShowSettings = true;
 // 双指滚动开关
 bool twoFingerScroll = true;
 
+// Touch Passthrough：开启后不拦截触摸事件，直接传递给游戏
+bool touchPassthrough = false;
+
 constexpr std::array<const char *, 7> possibleScale = {
     "Smallest", "Smaller", "Small", "Default", "Large", "Larger", "Largest",
 };
@@ -295,6 +298,12 @@ void draw_thread()
                 ConfigSet("tabShowSettings", tabShowSettings);
             if (ImGui::Checkbox(Lang::T("双指滚动", "Two-finger scroll"), &twoFingerScroll))
                 ConfigSet("twoFingerScroll", twoFingerScroll);
+            if (ImGui::Checkbox(Lang::T("触摸穿透", "Touch Passthrough"), &touchPassthrough))
+                ConfigSet("touchPassthrough", touchPassthrough);
+            if (touchPassthrough)
+            {
+                ImGui::TextDisabled("%s", Lang::T("临时方案：触摸事件未传递到游戏时启用", "Temporary fix if touches are not reaching the game"));
+            }
             ImGui::Separator();
             auto preview = possibleScale[selectedScale];
             if (ImGui::BeginCombo(Lang::T("缩放##Global", "Scale##Global"), preview))
@@ -572,6 +581,7 @@ void on_init()
     tabShowDumper = ConfigGet<bool>("tabShowDumper", true);
     tabShowSettings = ConfigGet<bool>("tabShowSettings", true);
     twoFingerScroll = ConfigGet<bool>("twoFingerScroll", true);
+    touchPassthrough = ConfigGet<bool>("touchPassthrough", false);
     if (selectedScale < 0 || selectedScale >= scaleFactors.size())
     {
         selectedScale = 3;
