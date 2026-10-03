@@ -485,31 +485,6 @@ static VkResult hooked_vkCreateDevice(VkPhysicalDevice phys, const VkDeviceCreat
         if (pvkGetDeviceQueue)
             pvkGetDeviceQueue(*out, g_ov.queueFamily, 0, &g_ov.queue);
         LOGI("Vulkan device captured queueFamily=%u", g_ov.queueFamily);
-
-        // Unity/UE 等引擎通过 vkGetDeviceProcAddr 获取 device-level 函数指针后直接调用，
-        // 直接 DobbyHook libvulkan.so 导出符号不会被触发。这里拿到真实地址后补 hook。
-        static bool s_realAddrHooksDone = false;
-        if (!s_realAddrHooksDone && pvkGetDeviceProcAddr && g_vulkanLib)
-        {
-            void *expPresent = dlsym(g_vulkanLib, "vkQueuePresentKHR");
-            void *expCreateSc = dlsym(g_vulkanLib, "vkCreateSwapchainKHR");
-            void *expDestroySc = dlsym(g_vulkanLib, "vkDestroySwapchainKHR");
-            void *realPresent = (void *)pvkGetDeviceProcAddr(*out, "vkQueuePresentKHR");
-            void *realCreateSc = (void *)pvkGetDeviceProcAddr(*out, "vkCreateSwapchainKHR");
-            void *realDestroySc = (void *)pvkGetDeviceProcAddr(*out, "vkDestroySwapchainKHR");
-            LOGI("Vulkan real vs export: present=%p/%p createSc=%p/%p destroySc=%p/%p",
-                 realPresent, expPresent, realCreateSc, expCreateSc, realDestroySc, expDestroySc);
-            if (realPresent && realPresent != expPresent &&
-                DobbyHook(realPresent, (void *)hooked_vkQueuePresentKHR, (void **)&orig_vkQueuePresentKHR) == 0)
-                LOGI("hooked real vkQueuePresentKHR at %p", realPresent);
-            if (realCreateSc && realCreateSc != expCreateSc &&
-                DobbyHook(realCreateSc, (void *)hooked_vkCreateSwapchainKHR, (void **)&orig_vkCreateSwapchainKHR) == 0)
-                LOGI("hooked real vkCreateSwapchainKHR at %p", realCreateSc);
-            if (realDestroySc && realDestroySc != expDestroySc &&
-                DobbyHook(realDestroySc, (void *)hooked_vkDestroySwapchainKHR, (void **)&orig_vkDestroySwapchainKHR) == 0)
-                LOGI("hooked real vkDestroySwapchainKHR at %p", realDestroySc);
-            s_realAddrHooksDone = true;
-        }
     }
     return r;
 }
