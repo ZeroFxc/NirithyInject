@@ -1,0 +1,21 @@
+{
+  "name": "il2cpp-tool-webui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "il2cpp_tool 的 KernelSU 模块 WebUI：管理 Zygisk 目标包白名单",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "kernelsu": "^3.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.2",
+    "vite-plugin-singlefile": "^2.3.3"
+  }
+}
