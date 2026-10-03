@@ -573,6 +573,9 @@ void setupMenu()
     ImGuiIO &io = ImGui::GetIO();
     io.DisplaySize = ImVec2((float)glWidth, (float)glHeight);
     io.IniFilename = nullptr;
+    // 启用 Docking（单视口内窗口停靠/分割/tab）。不启用 Multi-Viewports：
+    // Android overlay 单 GL 上下文，imgui_impl_android 不支持独立 OS 窗口。
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
     ImGui_ImplAndroid_Init(nullptr);
     ImGui_ImplOpenGL3_Init("#version 300 es");
