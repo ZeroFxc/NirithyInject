@@ -42,6 +42,7 @@ set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(LOCAL_SRC_FILES
         Main.cpp
         Menu/ImGui.cpp
+        Menu/Fonts.cpp
         Menu/VulkanHook.cpp
         Tool/Keyboard.cpp
         Tool/Tool.cpp
@@ -54,6 +55,7 @@ set(LOCAL_SRC_FILES
         Tool/Unity.cpp
         Tool/TextureCache.cpp
         Tool/Targets.cpp
+        Tool/Lang.cpp
         Script/Script.cpp
         Zygisk/ZygiskModule.cpp
         Includes/Utils.cpp

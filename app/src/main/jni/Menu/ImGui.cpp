@@ -1,5 +1,6 @@
 
 #include "ImGui.h"
+#include "Fonts.h"
 #include "VulkanHook.h"
 #include "KittyMemory/KittyMemory.h"
 #include "dobby.h"
@@ -7,7 +8,6 @@
 #include "Includes/obfuscate.h"
 #include "Includes/Logger.h"
 #include "imgui/imgui.h"
-#include "Includes/Roboto-Regular.h"
 #include "imgui/backends/imgui_impl_opengl3.h"
 #include "imgui/backends/imgui_impl_android.h"
 #include <GLES3/gl3.h>
@@ -15,7 +15,10 @@
 #include <chrono>
 #include <thread>
 #include <cmath>
+#include <dlfcn.h>
+#include <atomic>
 #include "EGL/egl.h"
+#include <android/input.h>
 
 #ifndef GL_FRAMEBUFFER_SRGB
 #define GL_FRAMEBUFFER_SRGB 0x8DB9
@@ -24,9 +27,16 @@
 #define GL_FRAMEBUFFER_SRGB_EXT 0x8DB9
 #endif
 
+#ifndef EGL_EGLEXT_PROTOTYPES
+#define EGL_EGLEXT_PROTOTYPES
+#endif
+#include <EGL/eglext.h>
+
 using swapbuffers_orig = EGLBoolean (*)(EGLDisplay dpy, EGLSurface surf);
 EGLBoolean swapbuffers_hook(EGLDisplay dpy, EGLSurface surf);
+void internalDrawMenu(int width, int height);
 swapbuffers_orig o_swapbuffers = nullptr;
+static EGLBoolean (*o_swap_damage)(EGLDisplay, EGLSurface, EGLint *, EGLint) = nullptr;
 
 void (*menuAddress)();
 void (*onInitAddr)();
@@ -59,6 +69,16 @@ HOOKINPUT(void, Input, void *thiz, void *ex_ab, void *ex_ac)
     return;
 }
 
+HOOKINPUT(int32_t, Consume, void *thiz, void *arg1, bool arg2, long arg3, uint32_t *arg4, AInputEvent **input_event)
+{
+    auto result = origConsume(thiz, arg1, arg2, arg3, arg4, input_event);
+    if (result != 0 || input_event == nullptr || *input_event == nullptr)
+        return result;
+    if (isInitialized)
+        ImGui_ImplAndroid_HandleInputEvent(*input_event);
+    return result;
+}
+
 ImVec2 initialScreenSize;
 bool needClear = true;
 
@@ -81,6 +101,99 @@ static void applyFpsLimit()
     }
 }
 
+static void *resolveSym(const char *lib, const char *sym)
+{
+    void *p = DobbySymbolResolver(lib, sym);
+    if (p)
+        return p;
+    void *h = dlopen(lib, RTLD_NOW | RTLD_NOLOAD);
+    if (!h)
+        h = dlopen(lib, RTLD_NOW);
+    if (h)
+        p = dlsym(h, sym);
+    return p;
+}
+
+static bool hookAddr(void *addr, void *hook, void **orig, const char *tag)
+{
+    if (!addr)
+        return false;
+    static void *hooked[16]{};
+    static int nHooked = 0;
+    for (int i = 0; i < nHooked; i++)
+        if (hooked[i] == addr)
+            return true;
+    if (DobbyHook(addr, hook, orig) == 0)
+    {
+        if (nHooked < 16)
+            hooked[nHooked++] = addr;
+        LOGI("hooked %s at %p", tag, addr);
+        return true;
+    }
+    LOGI("hook failed %s at %p", tag, addr);
+    return false;
+}
+
+static EGLBoolean swap_damage_hook(EGLDisplay dpy, EGLSurface surf, EGLint *rects, EGLint n)
+{
+    EGLint w = 0, h = 0;
+    eglQuerySurface(dpy, surf, EGL_WIDTH, &w);
+    eglQuerySurface(dpy, surf, EGL_HEIGHT, &h);
+    if (w > 0 && h > 0)
+    {
+        glWidth = w;
+        glHeight = h;
+        setupMenu();
+        internalDrawMenu(w, h);
+    }
+    if (o_swap_damage)
+        return o_swap_damage(dpy, surf, rects, n);
+    if (o_swapbuffers)
+        return o_swapbuffers(dpy, surf);
+    return EGL_TRUE;
+}
+
+void installOverlayHooks()
+{
+    static const char *kEglLibs[] = {"libEGL.so", "libunity.so", "libGLESv2.so", "libGLESv3.so"};
+    for (auto lib : kEglLibs)
+    {
+        if (!o_swapbuffers)
+            hookAddr(resolveSym(lib, "eglSwapBuffers"), (void *)swapbuffers_hook, (void **)&o_swapbuffers, "eglSwapBuffers");
+        if (!o_swap_damage)
+        {
+            void *d = resolveSym(lib, "eglSwapBuffersWithDamageKHR");
+            if (!d)
+                d = resolveSym(lib, "eglSwapBuffersWithDamageEXT");
+            hookAddr(d, (void *)swap_damage_hook, (void **)&o_swap_damage, "eglSwapBuffersWithDamage");
+        }
+    }
+
+    static const char *kInputLibs[] = {
+        "libinput.so",
+        "/system/lib64/libinput.so",
+        "/system/lib/libinput.so",
+    };
+    static const char *kMotion =
+        "_ZN7android13InputConsumer21initializeMotionEventEPNS_11MotionEventEPKNS_12InputMessageE";
+    static const char *kConsume =
+        "_ZN7android13InputConsumer7consumeEPNS_26InputEventFactoryInterfaceEblPjPPNS_10InputEventE";
+    static const char *kConsume2 =
+        "_ZN7android13InputConsumer7ConsumeEPNS_26InputEventFactoryInterfaceEblPjPPNS_10InputEventE";
+    for (auto lib : kInputLibs)
+    {
+        if (!origInput)
+            hookAddr(resolveSym(lib, kMotion), (void *)myInput, (void **)&origInput, "InputConsumer.initializeMotionEvent");
+        if (!origConsume)
+        {
+            void *c = resolveSym(lib, kConsume);
+            if (!c)
+                c = resolveSym(lib, kConsume2);
+            hookAddr(c, (void *)myConsume, (void **)&origConsume, "InputConsumer.consume");
+        }
+    }
+}
+
 void *initModMenu(void *menu_addr, void *on_init_addr, bool isJni)
 {
     menuAddress = (void (*)())menu_addr;
@@ -89,34 +202,66 @@ void *initModMenu(void *menu_addr, void *on_init_addr, bool isJni)
     if (!isJni)
     {
         needClear = false;
-        while (!isLibraryLoaded(OBFUSCATE("libEGL.so")))
+        int waited = 0;
+        while (!isLibraryLoaded(OBFUSCATE("libEGL.so")) && !isLibraryLoaded(OBFUSCATE("libunity.so")) && waited < 45)
         {
             sleep(1);
+            waited++;
         }
-        auto swapBuffers = ((uintptr_t)DobbySymbolResolver(OBFUSCATE("libEGL.so"), OBFUSCATE("eglSwapBuffers")));
-        if (swapBuffers)
-        {
-            KittyMemory::ProtectAddr((void *)swapBuffers, sizeof(swapBuffers), PROT_READ | PROT_WRITE | PROT_EXEC);
-            DobbyHook((void *)swapBuffers, (void *)swapbuffers_hook, (void **)&o_swapbuffers);
-        }
-
-#ifdef LIB_INPUT
-        void *sym_input = DobbySymbolResolver(
-            OBFUSCATE("/system/lib/libinput.so"),
-            OBFUSCATE("_ZN7android13InputConsumer21initializeMotionEventEPNS_11MotionEventEPKNS_12InputMessageE"));
-        if (sym_input != nullptr)
-        {
-            DobbyHook((void *)sym_input, (void *)myInput, (void **)&origInput);
-        }
-#endif
+        installOverlayHooks();
+        // Unity often loads after EGL — keep retrying in the background.
+        std::thread([] {
+            for (int i = 0; i < 60; i++)
+            {
+                installOverlayHooks();
+                sleep(1);
+            }
+        }).detach();
     }
     LOGI("%s", (char *)OBFUSCATE("ImGUI Hooks initialized"));
     return nullptr;
 }
 
+static void applyRounding(ImGuiStyle &style, float windowR, float frameR)
+{
+    style.WindowRounding = windowR;
+    style.ChildRounding = frameR;
+    style.FrameRounding = frameR;
+    style.PopupRounding = frameR;
+    style.ScrollbarRounding = frameR;
+    style.GrabRounding = frameR;
+    style.TabRounding = frameR;
+    style.WindowBorderSize = windowR > 8.f ? 0.f : 1.f;
+    style.FrameBorderSize = 0.f;
+}
+
+const char *themeName(int theme)
+{
+    switch (theme)
+    {
+    case 1:
+        return "theme.light";
+    case 2:
+        return "theme.teal";
+    case 3:
+        return "theme.md3dark";
+    case 4:
+        return "theme.md3light";
+    case 5:
+        return "theme.amoled";
+    case 6:
+        return "theme.dracula";
+    case 7:
+        return "theme.nord";
+    default:
+        return "theme.dark";
+    }
+}
+
 void menuStyle(int theme)
 {
     ImGuiStyle &style = ImGui::GetStyle();
+    applyRounding(style, 8.f, 6.f);
     switch (theme)
     {
     case 1: // Light
@@ -147,7 +292,7 @@ void menuStyle(int theme)
         style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.60f, 0.60f, 0.70f, 1.00f);
         style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.50f, 0.50f, 0.60f, 1.00f);
         break;
-    case 2: // Custom (蓝绿暗色)
+    case 2: // Teal
         style.Colors[ImGuiCol_WindowBg] = ImVec4(0.05f, 0.08f, 0.10f, 0.96f);
         style.Colors[ImGuiCol_ChildBg] = ImVec4(0.04f, 0.07f, 0.09f, 0.92f);
         style.Colors[ImGuiCol_PopupBg] = ImVec4(0.06f, 0.10f, 0.12f, 0.97f);
@@ -175,7 +320,161 @@ void menuStyle(int theme)
         style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.25f, 0.60f, 0.70f, 1.00f);
         style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.30f, 0.75f, 0.90f, 1.00f);
         break;
-    default: // Dark (默认)
+    case 3: { // MD3 Dark — Material You
+        applyRounding(style, 20.f, 14.f);
+        const ImVec4 surface(0.11f, 0.11f, 0.12f, 0.97f);
+        const ImVec4 container(0.17f, 0.16f, 0.18f, 0.96f);
+        const ImVec4 primary(0.82f, 0.74f, 1.00f, 1.00f);
+        const ImVec4 primaryC(0.31f, 0.27f, 0.45f, 1.00f);
+        const ImVec4 onSurf(0.90f, 0.88f, 0.90f, 1.00f);
+        style.Colors[ImGuiCol_WindowBg] = surface;
+        style.Colors[ImGuiCol_ChildBg] = container;
+        style.Colors[ImGuiCol_PopupBg] = ImVec4(0.20f, 0.19f, 0.22f, 0.98f);
+        style.Colors[ImGuiCol_FrameBg] = ImVec4(0.22f, 0.21f, 0.25f, 0.95f);
+        style.Colors[ImGuiCol_Text] = onSurf;
+        style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.58f, 0.56f, 0.60f, 1.00f);
+        style.Colors[ImGuiCol_Button] = primaryC;
+        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.40f, 0.35f, 0.58f, 1.00f);
+        style.Colors[ImGuiCol_ButtonActive] = primary;
+        style.Colors[ImGuiCol_Header] = primaryC;
+        style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.40f, 0.35f, 0.58f, 1.00f);
+        style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.48f, 0.42f, 0.66f, 1.00f);
+        style.Colors[ImGuiCol_Separator] = ImVec4(0.58f, 0.56f, 0.60f, 0.50f);
+        style.Colors[ImGuiCol_Border] = ImVec4(0.58f, 0.56f, 0.60f, 0.40f);
+        style.Colors[ImGuiCol_TitleBg] = container;
+        style.Colors[ImGuiCol_TitleBgActive] = primaryC;
+        style.Colors[ImGuiCol_Tab] = container;
+        style.Colors[ImGuiCol_TabHovered] = ImVec4(0.40f, 0.35f, 0.58f, 1.00f);
+        style.Colors[ImGuiCol_TabActive] = primaryC;
+        style.Colors[ImGuiCol_CheckMark] = primary;
+        style.Colors[ImGuiCol_SliderGrab] = primary;
+        style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(0.90f, 0.84f, 1.00f, 1.00f);
+        style.Colors[ImGuiCol_ScrollbarBg] = surface;
+        style.Colors[ImGuiCol_ScrollbarGrab] = primaryC;
+        style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.40f, 0.35f, 0.58f, 1.00f);
+        style.Colors[ImGuiCol_ScrollbarGrabActive] = primary;
+        style.Colors[ImGuiCol_ResizeGrip] = primaryC;
+        style.Colors[ImGuiCol_ResizeGripHovered] = primary;
+        break;
+    }
+    case 4: { // MD3 Light
+        applyRounding(style, 20.f, 14.f);
+        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.99f, 0.97f, 1.00f, 0.98f);
+        style.Colors[ImGuiCol_ChildBg] = ImVec4(0.95f, 0.93f, 0.97f, 0.96f);
+        style.Colors[ImGuiCol_PopupBg] = ImVec4(0.96f, 0.94f, 0.98f, 0.98f);
+        style.Colors[ImGuiCol_FrameBg] = ImVec4(0.91f, 0.89f, 0.94f, 0.95f);
+        style.Colors[ImGuiCol_Text] = ImVec4(0.11f, 0.11f, 0.12f, 1.00f);
+        style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.45f, 0.44f, 0.48f, 1.00f);
+        style.Colors[ImGuiCol_Button] = ImVec4(0.91f, 0.87f, 1.00f, 1.00f);
+        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.82f, 0.74f, 1.00f, 1.00f);
+        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.40f, 0.31f, 0.64f, 1.00f);
+        style.Colors[ImGuiCol_Header] = ImVec4(0.91f, 0.87f, 1.00f, 1.00f);
+        style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.82f, 0.74f, 1.00f, 1.00f);
+        style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.67f, 0.58f, 0.90f, 1.00f);
+        style.Colors[ImGuiCol_Separator] = ImVec4(0.48f, 0.45f, 0.51f, 0.40f);
+        style.Colors[ImGuiCol_Border] = ImVec4(0.48f, 0.45f, 0.51f, 0.30f);
+        style.Colors[ImGuiCol_TitleBg] = ImVec4(0.95f, 0.93f, 0.97f, 1.00f);
+        style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.91f, 0.87f, 1.00f, 1.00f);
+        style.Colors[ImGuiCol_Tab] = ImVec4(0.95f, 0.93f, 0.97f, 1.00f);
+        style.Colors[ImGuiCol_TabHovered] = ImVec4(0.82f, 0.74f, 1.00f, 1.00f);
+        style.Colors[ImGuiCol_TabActive] = ImVec4(0.91f, 0.87f, 1.00f, 1.00f);
+        style.Colors[ImGuiCol_CheckMark] = ImVec4(0.40f, 0.31f, 0.64f, 1.00f);
+        style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.40f, 0.31f, 0.64f, 1.00f);
+        style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(0.31f, 0.22f, 0.54f, 1.00f);
+        style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.99f, 0.97f, 1.00f, 0.90f);
+        style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.82f, 0.74f, 1.00f, 0.90f);
+        style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.67f, 0.58f, 0.90f, 1.00f);
+        style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.40f, 0.31f, 0.64f, 1.00f);
+        break;
+    }
+    case 5: // AMOLED
+        applyRounding(style, 12.f, 8.f);
+        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.94f);
+        style.Colors[ImGuiCol_ChildBg] = ImVec4(0.05f, 0.05f, 0.05f, 0.90f);
+        style.Colors[ImGuiCol_PopupBg] = ImVec4(0.06f, 0.06f, 0.06f, 0.96f);
+        style.Colors[ImGuiCol_FrameBg] = ImVec4(0.12f, 0.12f, 0.12f, 0.90f);
+        style.Colors[ImGuiCol_Text] = ImVec4(0.95f, 0.95f, 0.95f, 1.00f);
+        style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.45f, 0.45f, 0.45f, 1.00f);
+        style.Colors[ImGuiCol_Button] = ImVec4(0.16f, 0.16f, 0.16f, 0.80f);
+        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.28f, 0.28f, 0.28f, 1.00f);
+        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.40f, 0.40f, 0.40f, 1.00f);
+        style.Colors[ImGuiCol_Header] = ImVec4(0.16f, 0.16f, 0.16f, 0.80f);
+        style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.28f, 0.28f, 0.28f, 1.00f);
+        style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.36f, 0.36f, 0.36f, 1.00f);
+        style.Colors[ImGuiCol_Separator] = ImVec4(0.22f, 0.22f, 0.22f, 0.80f);
+        style.Colors[ImGuiCol_Border] = ImVec4(0.20f, 0.20f, 0.20f, 0.70f);
+        style.Colors[ImGuiCol_TitleBg] = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
+        style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
+        style.Colors[ImGuiCol_Tab] = ImVec4(0.08f, 0.08f, 0.08f, 0.90f);
+        style.Colors[ImGuiCol_TabHovered] = ImVec4(0.28f, 0.28f, 0.28f, 1.00f);
+        style.Colors[ImGuiCol_TabActive] = ImVec4(0.16f, 0.16f, 0.16f, 1.00f);
+        style.Colors[ImGuiCol_CheckMark] = ImVec4(0.40f, 0.85f, 0.55f, 1.00f);
+        style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.40f, 0.85f, 0.55f, 1.00f);
+        style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(0.55f, 0.95f, 0.65f, 1.00f);
+        style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.90f);
+        style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.22f, 0.22f, 0.22f, 0.90f);
+        style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
+        style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
+        break;
+    case 6: // Dracula
+        applyRounding(style, 10.f, 7.f);
+        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.16f, 0.16f, 0.21f, 0.97f);
+        style.Colors[ImGuiCol_ChildBg] = ImVec4(0.13f, 0.13f, 0.18f, 0.92f);
+        style.Colors[ImGuiCol_PopupBg] = ImVec4(0.16f, 0.16f, 0.21f, 0.98f);
+        style.Colors[ImGuiCol_FrameBg] = ImVec4(0.27f, 0.28f, 0.35f, 0.90f);
+        style.Colors[ImGuiCol_Text] = ImVec4(0.97f, 0.97f, 0.95f, 1.00f);
+        style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.38f, 0.42f, 0.52f, 1.00f);
+        style.Colors[ImGuiCol_Button] = ImVec4(0.74f, 0.58f, 0.98f, 0.55f);
+        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.74f, 0.58f, 0.98f, 0.85f);
+        style.Colors[ImGuiCol_ButtonActive] = ImVec4(1.00f, 0.47f, 0.78f, 1.00f);
+        style.Colors[ImGuiCol_Header] = ImVec4(0.74f, 0.58f, 0.98f, 0.40f);
+        style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.74f, 0.58f, 0.98f, 0.70f);
+        style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.80f, 0.47f, 0.65f, 1.00f);
+        style.Colors[ImGuiCol_Separator] = ImVec4(0.27f, 0.28f, 0.35f, 1.00f);
+        style.Colors[ImGuiCol_Border] = ImVec4(0.27f, 0.28f, 0.35f, 0.80f);
+        style.Colors[ImGuiCol_TitleBg] = ImVec4(0.13f, 0.13f, 0.18f, 1.00f);
+        style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.74f, 0.58f, 0.98f, 0.45f);
+        style.Colors[ImGuiCol_Tab] = ImVec4(0.16f, 0.16f, 0.21f, 0.90f);
+        style.Colors[ImGuiCol_TabHovered] = ImVec4(0.74f, 0.58f, 0.98f, 0.70f);
+        style.Colors[ImGuiCol_TabActive] = ImVec4(0.27f, 0.28f, 0.35f, 1.00f);
+        style.Colors[ImGuiCol_CheckMark] = ImVec4(0.31f, 0.98f, 0.48f, 1.00f);
+        style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.74f, 0.58f, 0.98f, 1.00f);
+        style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(1.00f, 0.47f, 0.78f, 1.00f);
+        style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.13f, 0.13f, 0.18f, 0.90f);
+        style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.27f, 0.28f, 0.35f, 0.90f);
+        style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.74f, 0.58f, 0.98f, 0.70f);
+        style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.74f, 0.58f, 0.98f, 1.00f);
+        break;
+    case 7: // Nord
+        applyRounding(style, 10.f, 7.f);
+        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.18f, 0.20f, 0.25f, 0.97f);
+        style.Colors[ImGuiCol_ChildBg] = ImVec4(0.23f, 0.26f, 0.32f, 0.92f);
+        style.Colors[ImGuiCol_PopupBg] = ImVec4(0.18f, 0.20f, 0.25f, 0.98f);
+        style.Colors[ImGuiCol_FrameBg] = ImVec4(0.26f, 0.30f, 0.37f, 0.90f);
+        style.Colors[ImGuiCol_Text] = ImVec4(0.93f, 0.94f, 0.96f, 1.00f);
+        style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.60f, 0.64f, 0.69f, 1.00f);
+        style.Colors[ImGuiCol_Button] = ImVec4(0.37f, 0.51f, 0.67f, 0.70f);
+        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.53f, 0.75f, 0.81f, 1.00f);
+        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.64f, 0.75f, 0.55f, 1.00f);
+        style.Colors[ImGuiCol_Header] = ImVec4(0.37f, 0.51f, 0.67f, 0.55f);
+        style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.53f, 0.75f, 0.81f, 0.80f);
+        style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.37f, 0.51f, 0.67f, 1.00f);
+        style.Colors[ImGuiCol_Separator] = ImVec4(0.30f, 0.34f, 0.42f, 0.80f);
+        style.Colors[ImGuiCol_Border] = ImVec4(0.30f, 0.34f, 0.42f, 0.70f);
+        style.Colors[ImGuiCol_TitleBg] = ImVec4(0.18f, 0.20f, 0.25f, 1.00f);
+        style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.37f, 0.51f, 0.67f, 0.70f);
+        style.Colors[ImGuiCol_Tab] = ImVec4(0.23f, 0.26f, 0.32f, 0.90f);
+        style.Colors[ImGuiCol_TabHovered] = ImVec4(0.53f, 0.75f, 0.81f, 0.80f);
+        style.Colors[ImGuiCol_TabActive] = ImVec4(0.37f, 0.51f, 0.67f, 1.00f);
+        style.Colors[ImGuiCol_CheckMark] = ImVec4(0.64f, 0.75f, 0.55f, 1.00f);
+        style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.53f, 0.75f, 0.81f, 1.00f);
+        style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(0.64f, 0.75f, 0.55f, 1.00f);
+        style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.18f, 0.20f, 0.25f, 0.90f);
+        style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.30f, 0.34f, 0.42f, 0.90f);
+        style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.37f, 0.51f, 0.67f, 1.00f);
+        style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.53f, 0.75f, 0.81f, 1.00f);
+        break;
+    default: // Dark
         style.Colors[ImGuiCol_WindowBg] = ImVec4(0.07f, 0.07f, 0.08f, 0.96f);
         style.Colors[ImGuiCol_ChildBg] = ImVec4(0.06f, 0.06f, 0.07f, 0.90f);
         style.Colors[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.08f, 0.09f, 0.96f);
@@ -225,11 +524,10 @@ void setupMenu()
     ImGui_ImplAndroid_Init(nullptr);
     ImGui_ImplOpenGL3_Init("#version 300 es");
 
-    io.Fonts->AddFontFromMemoryTTF(Roboto_Regular, sizeof(Roboto_Regular), 40.0f);
+    loadOverlayFonts();
 
     ImGui::GetStyle().ScaleAllSizes(2);
     ImGui::GetStyle().ScrollbarSize *= 2.5f;
-    // 默认暗色主题；用户选择通过 on_init 的 ConfigGet("theme") 在 doChangeScale 中应用
     menuStyle(0);
 
     if (onInitAddr)
@@ -263,7 +561,8 @@ void internalDrawMenu(int width, int height)
     ImGui::NewFrame();
 
     ImGui::SetNextWindowSize(ImVec2((float)width / 2, (float)height / 2), ImGuiCond_Once);
-    menuAddress();
+    if (menuAddress)
+        menuAddress();
 
     ImGui::Render();
 
@@ -292,15 +591,9 @@ void internalDrawMenu(int width, int height)
     applyFpsLimit();
 }
 
-// 上一次绘制使用的叠加层尺寸（仅由 swapbuffers_hook 维护，避免与 Unity 逻辑分辨率混淆）
 static int g_overlayWidth = 0;
 static int g_overlayHeight = 0;
 
-// 判断叠加层尺寸是否发生显著变化（相对上次绘制尺寸偏差超过 20%）
-// 功能：Waydroid / WSA 等环境下 EGL 缓冲尺寸会随窗口密度修正而变化，
-//       若仍沿用旧尺寸布局，菜单会停留在旧坐标上导致叠加层错位。
-// 参数：width/height 为本帧查询到的 EGL 表面尺寸
-// 返回值：true 表示尺寸变化显著，需要重新记录基准并重排窗口
 static bool isOverlaySizeChanged(int width, int height)
 {
     if (g_overlayWidth <= 0 || g_overlayHeight <= 0)
@@ -322,7 +615,6 @@ EGLBoolean swapbuffers_hook(EGLDisplay dpy, EGLSurface surf)
 
     if (g_overlayWidth <= 0 || g_overlayHeight <= 0)
     {
-        // 首帧只记录基准尺寸，不改动窗口布局
         g_overlayWidth = w;
         g_overlayHeight = h;
         initialScreenSize.x = (float)w;
@@ -330,7 +622,6 @@ EGLBoolean swapbuffers_hook(EGLDisplay dpy, EGLSurface surf)
     }
     else if (isOverlaySizeChanged(w, h))
     {
-        // 显示尺寸显著变化（分辨率切换或密度修正后），更新基准并通知主线程重排窗口
         g_overlayWidth = w;
         g_overlayHeight = h;
         initialScreenSize.x = (float)w;
@@ -342,5 +633,7 @@ EGLBoolean swapbuffers_hook(EGLDisplay dpy, EGLSurface surf)
     setupMenu();
     internalDrawMenu(w, h);
 
-    return o_swapbuffers(dpy, surf);
+    if (o_swapbuffers)
+        return o_swapbuffers(dpy, surf);
+    return EGL_TRUE;
 }

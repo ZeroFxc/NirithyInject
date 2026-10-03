@@ -426,21 +426,14 @@ void draw_thread()
                 ConfigSet("lang", Lang::current);
             }
             ImGui::Separator();
-            ImGui::Text("%s", Lang::T("主题", "Theme"));
-            static const std::array<const char *, 3> possibleThemes = {
-                "暗色", "亮色", "自定义",
-            };
-            static const std::array<const char *, 3> possibleThemesEn = {
-                "Dark", "Light", "Custom",
-            };
-            auto themeLabel = Lang::current == 0 ? possibleThemes[selectedTheme] : possibleThemesEn[selectedTheme];
+            ImGui::Text("%s", Lang::tr("theme.label"));
+            const char *themeLabel = Lang::tr(themeName(selectedTheme));
             if (ImGui::BeginCombo(Lang::T("主题##Global", "Theme##Global"), themeLabel))
             {
-                for (int i = 0; i < possibleThemes.size(); i++)
+                for (int i = 0; i < kThemeCount; i++)
                 {
                     bool selected = i == selectedTheme;
-                    auto label = Lang::current == 0 ? possibleThemes[i] : possibleThemesEn[i];
-                    if (ImGui::Selectable(label, selected))
+                    if (ImGui::Selectable(Lang::tr(themeName(i)), selected))
                     {
                         selectedTheme = i;
                         ConfigSet("theme", selectedTheme);
@@ -766,7 +759,7 @@ void on_init()
         selectedScale = 3;
         ConfigSet("selectedScale", selectedScale);
     }
-    if (selectedTheme < 0 || selectedTheme > 2)
+    if (selectedTheme < 0 || selectedTheme >= kThemeCount)
     {
         selectedTheme = 0;
         ConfigSet("theme", selectedTheme);
