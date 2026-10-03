@@ -291,14 +291,19 @@ void ImGui_ImplAndroid_NewFrame()
     ImGuiIO& io = ImGui::GetIO();
 
     // Setup display size (every frame to accommodate for window resizing)
-    int32_t window_width = ANativeWindow_getWidth(g_Window);
-    int32_t window_height = ANativeWindow_getHeight(g_Window);
-    int display_width = window_width;
-    int display_height = window_height;
+    // 项目以 nullptr 初始化 ImGui_ImplAndroid_Init，由 VulkanHook/主循环自行设置 DisplaySize；
+    // g_Window 为空时跳过 ANativeWindow 调用，避免空指针崩溃。
+    if (g_Window)
+    {
+        int32_t window_width = ANativeWindow_getWidth(g_Window);
+        int32_t window_height = ANativeWindow_getHeight(g_Window);
+        int display_width = window_width;
+        int display_height = window_height;
 
-    io.DisplaySize = ImVec2((float)window_width, (float)window_height);
-    if (window_width > 0 && window_height > 0)
-        io.DisplayFramebufferScale = ImVec2((float)display_width / window_width, (float)display_height / window_height);
+        io.DisplaySize = ImVec2((float)window_width, (float)window_height);
+        if (window_width > 0 && window_height > 0)
+            io.DisplayFramebufferScale = ImVec2((float)display_width / window_width, (float)display_height / window_height);
+    }
 
     // Setup time step
     struct timespec current_timespec;
