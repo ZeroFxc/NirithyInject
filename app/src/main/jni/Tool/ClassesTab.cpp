@@ -25,6 +25,7 @@ extern bool sideSplit;
 constexpr int MAX_CLASSES = 500;
 
 std::vector<ClassesTab::MethodCard> ClassesTab::methodCards{};
+int ClassesTab::expandedClassCount = 0;
 
 
 int maxLine{5};
@@ -2087,18 +2088,15 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
             for (auto m : klass->getMethods())
                 methods.push_back({m, m->getParamsInfo()});
         }
-        ImGuiListClipper clipper;
-        clipper.Begin((int)methods.size());
-        while (clipper.Step())
+        // 方法节点可展开导致行高不固定，ImGuiListClipper 会误算可见范围造成覆盖；
+        // 单类方法数量通常有限，直接遍历渲染。
+        for (size_t i = 0; i < methods.size(); i++)
         {
-            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
-            {
-                auto &[method, paramsInfo] = methods[i];
-                ImGui::PushID(method + i);
-                MethodViewer(klass, method, paramsInfo);
-                ImGui::Separator();
-                ImGui::PopID();
-            }
+            auto &[method, paramsInfo] = methods[i];
+            ImGui::PushID(method + i);
+            MethodViewer(klass, method, paramsInfo);
+            ImGui::Separator();
+            ImGui::PopID();
         }
     }
     ImGui::PopID();
@@ -2187,11 +2185,6 @@ void ClassesTab::Draw(int index, bool closeable)
         if (ImGui::Button("Filter Options"))
         {
             ImGui::OpenPopup("FilterOptions");
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton(sideSplit ? Lang::T("单列", "Single") : Lang::T("双列", "Split")))
-        {
-            sideSplit = !sideSplit;
         }
 
         {
@@ -2387,12 +2380,22 @@ void ClassesTab::Draw(int index, bool closeable)
                         ImGuiTreeNodeFlags nodeFlags = ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_AllowOverlap;
                         if (selectedClass == klass)
                             nodeFlags |= ImGuiTreeNodeFlags_Selected;
+                        bool wasOpen = states[klass];
                         bool collapsingHeader = ImGui::TreeNodeEx(klass->getFullName().c_str(), nodeFlags);
+                        // 展开状态变化时更新计数器，自动切换双列布局
+                        if (collapsingHeader && !wasOpen)
+                            expandedClassCount++;
+                        else if (!collapsingHeader && wasOpen)
+                            expandedClassCount--;
+                        states[klass] = collapsingHeader;
+                        sideSplit = expandedClassCount > 0;
                         if (ImGui::IsItemClicked())
                             selectedClass = klass;
                         // 钉入/移除顶部子标签卡按钮（AllowOverlap 允许按钮重叠在节点行尾）
                         ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 28);
-                        if (ImGui::SmallButton(Tool::IsClassPinned(klass) ? "x" : "+"))
+                        char pinBtnId[32];
+                        snprintf(pinBtnId, sizeof(pinBtnId), "%s##pin_%p", Tool::IsClassPinned(klass) ? "x" : "+", (void *)klass);
+                        if (ImGui::SmallButton(pinBtnId))
                             Tool::ToggleClassTab(klass);
                         if (filterByMethod && ImGui::IsItemHeld(0.7f))
                         {

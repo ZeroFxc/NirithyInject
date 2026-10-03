@@ -103,7 +103,7 @@ constexpr std::array<float, 7> scaleFactors = {0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 
 
 ImGuiStyle initialStyle;
 
-const char *title = OBFUSCATE("IL2CPP Tool v1.0 | Zygisk + GLES/Vulkan");
+const char *title = OBFUSCATE("NirithyTool");
 static std::atomic<bool> g_hackStarted{false};
 
 void draw_thread()

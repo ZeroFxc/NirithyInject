@@ -126,6 +126,7 @@ struct ClassesTab
     static void DrawMethodDetailCard(MethodCard &card);
 
     static std::unordered_map<Il2CppClass *, bool> states;
+    static int expandedClassCount; // 当前展开的类节点数量，用于自动切换双列布局
     void ClassViewer(Il2CppClass *klass);
     void StaticFieldViewer(Il2CppClass *klass);
     void HookerCollectedFieldEditor(Il2CppClass *klass);
