@@ -132,6 +132,8 @@ struct ClassesTab
 
     std::string filter = "";
     std::string title = ""; // 标签页标题（类短名），空时回退到 filter
+    // 搜索框文本缓冲（与 filter 同步；点击后唤起系统键盘输入）
+    char searchBuf[256] = {0};
     int selectedImageIndex = -1;
     bool traceState = false;
 

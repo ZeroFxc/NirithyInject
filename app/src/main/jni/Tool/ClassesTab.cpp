@@ -1932,6 +1932,9 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
 {
     if (!klass)
         return;
+    // 以类指针压入独立 ID 作用域，保证同一帧内多个已展开类的控件 ID 不冲突
+    // （此前 PopID 位置错误，导致该类作用域被提前弹出，多个类的“显示方法”等控件 ID 相同）
+    ImGui::PushID(klass);
     if (ImGui::Button(Lang::T("检查对象", "Inspect Objects")))
     {
         ImGui::OpenPopup("DumpPopup");
@@ -2001,7 +2004,6 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
                             [this](Il2CppObject *object) { setJsonObject(object); });
         ImGui::EndPopup();
     }
-    ImGui::PopID();
     ImGui::Separator();
 
     StaticFieldViewer(klass);
@@ -2012,8 +2014,15 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
 
     if (showMethods)
     {
+        // 确保当前类的方法列表已构建：侧栏等入口不会经过 FilterClasses，methodMap 可能为空
+        auto &methods = methodMap[klass];
+        if (methods.empty())
+        {
+            for (auto m : klass->getMethods())
+                methods.push_back({m, m->getParamsInfo()});
+        }
         int j = 0;
-        for (auto &[method, paramsInfo] : methodMap[klass])
+        for (auto &[method, paramsInfo] : methods)
         {
             ImGui::PushID(method + j++);
             MethodViewer(klass, method, paramsInfo);
@@ -2021,6 +2030,7 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
             ImGui::PopID();
         }
     }
+    ImGui::PopID();
 }
 
 void ClassesTab::Draw(int index, bool closeable)
@@ -2074,31 +2084,35 @@ void ClassesTab::Draw(int index, bool closeable)
             FilterClasses(filter);
         }
 
-        char filterBuffer[256];
-        sprintf(filterBuffer, "Filter : %s | %zu of %zu", filter.empty() ? "(none)" : filter.c_str(),
-                filteredClasses.size(), classes.size());
-        if (ImGui::Button(filterBuffer, ImVec2(ImGui::GetContentRegionAvail().x, 0.0f)) && !Keyboard::IsOpen())
+        // 搜索框：直接输入筛选文本。ImGui 收不到系统输入法字符，点击时唤起 Unity 软键盘。
+        // 外部改动 filter（如打开新标签页）时同步显示文本；键盘打开期间不覆盖。
+        if (!Keyboard::IsOpen() && filter != searchBuf)
+            snprintf(searchBuf, sizeof(searchBuf), "%s", filter.c_str());
+
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::InputTextWithHint("##classSearch",
+                                     Lang::T("搜索类或方法（:方法名）", "Search class or method (:name)"), searchBuf,
+                                     sizeof(searchBuf)))
         {
-            Keyboard::Open(
-                [this](const std::string &text)
-                {
-                    filter = text;
-                    FilterClasses(filter);
-                });
+            filter = searchBuf;
+            FilterClasses(filter);
+        }
+        if (ImGui::IsItemActivated() && !Keyboard::IsOpen())
+        {
+            Keyboard::Open(filter.c_str(),
+                           [this](const std::string &text)
+                           {
+                               snprintf(searchBuf, sizeof(searchBuf), "%s", text.c_str());
+                               filter = text;
+                               FilterClasses(filter);
+                           });
         }
         if (ImGui::IsItemHovered())
         {
             ImGui::SetTooltip("%s", Lang::T("支持 :方法名 直接按方法筛选", "Prefix with ':' to filter by method name"));
         }
-        if (!Keyboard::IsOpen() && ImGui::IsItemHeld())
-        {
-            Keyboard::Open(filter.c_str(),
-                           [this](const std::string &text)
-                           {
-                               filter = text;
-                               FilterClasses(filter);
-                           });
-        }
+        ImGui::TextDisabled("%zu / %zu", filteredClasses.size(), classes.size());
+        ImGui::SameLine();
         if (ImGui::Button("Filter Options"))
         {
             ImGui::OpenPopup("FilterOptions");
@@ -2302,7 +2316,7 @@ void ClassesTab::Draw(int index, bool closeable)
                         ImGui::PopStyleColor(pushedColor);
                         pushedColor = 0;
                     }
-                    ImGui::PushID(i);
+                    // ClassViewer 内部已按类指针 PushID/PopID，这里不再重复压栈
                     // TODO: Rename Dump (DumpPopup and other related functions used) to Inspect
                     ClassViewer(klass);
                 }
