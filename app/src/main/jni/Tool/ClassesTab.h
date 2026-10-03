@@ -108,6 +108,9 @@ struct ClassesTab
     // Side Split 分栏：当前选中查看的类
     Il2CppClass *selectedClass = nullptr;
 
+    // 方法视图显示开关（方法列表默认开启）
+    bool showMethods = true;
+
     int maxProgress = 0;
     int progress = 0;
     void Draw(int index = -1, bool closeable = false);

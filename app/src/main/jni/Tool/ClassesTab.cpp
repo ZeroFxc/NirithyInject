@@ -1483,13 +1483,20 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
 
     StaticFieldViewer(klass);
 
-    int j = 0;
-    for (auto &[method, paramsInfo] : methodMap[klass])
+    // 方法视图显示开关：关闭时跳过后面的方法列表渲染
+    ImGui::Checkbox(Lang::T("显示方法", "Show Methods"), &showMethods);
+    ImGui::Separator();
+
+    if (showMethods)
     {
-        ImGui::PushID(method + j++);
-        MethodViewer(klass, method, paramsInfo);
-        ImGui::Separator();
-        ImGui::PopID();
+        int j = 0;
+        for (auto &[method, paramsInfo] : methodMap[klass])
+        {
+            ImGui::PushID(method + j++);
+            MethodViewer(klass, method, paramsInfo);
+            ImGui::Separator();
+            ImGui::PopID();
+        }
     }
 }
 
@@ -2622,6 +2629,7 @@ void to_json(nlohmann::ordered_json &j, const ClassesTab &p)
     j["caseSensitive"] = p.caseSensitive;
     j["exactMatch"] = p.exactMatch;
     j["alwaysRefreshInspector"] = p.alwaysRefreshInspector;
+    j["showMethods"] = p.showMethods;
     j["selectedImage"] = p.selectedImage ? p.selectedImage->getName() : "";
 }
 
@@ -2644,6 +2652,8 @@ void from_json(const nlohmann::ordered_json &j, ClassesTab &p)
         j.at("filterMethodByParams").get_to(p.filterMethodByParams);
     if (j.contains("alwaysRefreshInspector"))
         j.at("alwaysRefreshInspector").get_to(p.alwaysRefreshInspector);
+    if (j.contains("showMethods"))
+        j.at("showMethods").get_to(p.showMethods);
     std::string selectedImage = j.at("selectedImage").get<std::string>();
     if (selectedImage.ends_with(".dll"))
     {
