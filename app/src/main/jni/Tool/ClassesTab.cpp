@@ -2021,13 +2021,18 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
             for (auto m : klass->getMethods())
                 methods.push_back({m, m->getParamsInfo()});
         }
-        int j = 0;
-        for (auto &[method, paramsInfo] : methods)
+        ImGuiListClipper clipper;
+        clipper.Begin((int)methods.size());
+        while (clipper.Step())
         {
-            ImGui::PushID(method + j++);
-            MethodViewer(klass, method, paramsInfo);
-            ImGui::Separator();
-            ImGui::PopID();
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
+            {
+                auto &[method, paramsInfo] = methods[i];
+                ImGui::PushID(method + i);
+                MethodViewer(klass, method, paramsInfo);
+                ImGui::Separator();
+                ImGui::PopID();
+            }
         }
     }
     ImGui::PopID();
