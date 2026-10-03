@@ -60,6 +60,7 @@ bool centerWindow = false;
 int snapWindow = 0; // 0=无, 1=左上, 2=右上, 3=左下, 4=右下
 int selectedScale = 3;
 int selectedTheme = 0;
+bool neonBorder = false;
 int fpsLimit = 0;
 
 extern int g_fpsLimit;
@@ -448,6 +449,11 @@ void draw_thread()
                 }
                 ImGui::EndCombo();
             }
+            if (ImGui::Checkbox(Lang::T("霓虹边框", "Neon border"), &neonBorder))
+            {
+                ConfigSet("neonBorder", neonBorder);
+                doChangeScale = true;
+            }
             ImGui::Text("%s", Lang::T("最大帧率", "Max FPS"));
             ImGui::SameLine();
             ImGui::SetNextItemWidth(120);
@@ -722,6 +728,7 @@ void on_init()
         Lang::current = ConfigGet<int>("lang", 0);
         selectedScale = ConfigGet<int>("selectedScale", selectedScale);
         selectedTheme = ConfigGet<int>("theme", 0);
+        neonBorder = ConfigGet<bool>("neonBorder", false);
         doChangeScale = true;
         return;
     }
@@ -756,6 +763,7 @@ void on_init()
     touchPassthrough = ConfigGet<bool>("touchPassthrough", false);
     saferInspector = ConfigGet<bool>("saferInspector", false);
     sideSplit = ConfigGet<bool>("sideSplit", false);
+    neonBorder = ConfigGet<bool>("neonBorder", false);
     if (selectedScale < 0 || selectedScale >= scaleFactors.size())
     {
         selectedScale = 3;

@@ -556,6 +556,23 @@ void menuStyle(int theme)
         style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.50f, 0.50f, 0.60f, 1.00f);
         break;
     }
+
+    // 霓虹边框（可选开关）：青色发光边框，增强视觉辨识度
+    extern bool neonBorder;
+    if (neonBorder)
+    {
+        style.WindowBorderSize = 2.0f;
+        style.ChildBorderSize = 1.5f;
+        style.PopupBorderSize = 1.5f;
+        style.Colors[ImGuiCol_Border] = ImVec4(0.0f, 0.95f, 1.0f, 0.90f);
+        style.Colors[ImGuiCol_BorderShadow] = ImVec4(0.0f, 0.95f, 1.0f, 0.50f);
+    }
+
+    // 未选中 tab 统一调暗，增强选中/未选中的层级区分
+    ImVec4 &tabUnselected = style.Colors[ImGuiCol_Tab];
+    tabUnselected.x *= 0.65f;
+    tabUnselected.y *= 0.65f;
+    tabUnselected.z *= 0.65f;
 }
 
 void setupMenu()
