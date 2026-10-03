@@ -1,6 +1,7 @@
 #include "Logger.h"
 
 #include "Logger.h"
+#include "Tool/SessionLog.h"
 #include "imgui/imgui.h"
 #include <cstdio>
 #include <string.h>
@@ -44,6 +45,17 @@ namespace logger
         va_start(args, fmt);
         Buf.appendfv(modifiedBuf, args);
         va_end(args);
+
+        // 同步落盘为会话日志：与面板显示完全相同的内容写入
+        // /data/adb/NirithyInject/<包名>/<日期>.log（无 root 通道时回退应用私有目录）
+        {
+            char line[1024];
+            va_list args2;
+            va_start(args2, fmt);
+            vsnprintf(line, sizeof(line), modifiedBuf, args2);
+            va_end(args2);
+            SessionLog::Append(line);
+        }
 
         delete[] modifiedBuf;
         for (int new_size = Buf.size(); old_size < new_size; old_size++)

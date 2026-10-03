@@ -1,6 +1,7 @@
 #include "Targets.h"
 #include "Includes/Logger.h"
 #include <algorithm>
+#include <cctype>
 #include <ctime>
 #include <fstream>
 #include <unistd.h>
@@ -145,6 +146,47 @@ namespace Targets
         if (cmd.rfind("app_process", 0) == 0)
             return true;
         return false;
+    }
+
+    // root companion 专用：把一行日志追加到 /data/adb/NirithyInject/<包名>/<日期>.log。
+    // 每次 open/close 以保证多进程（多个 app 同时注入）追加时不互相覆盖。
+    void AppendPackageLog(const std::string &package, const char *line)
+    {
+        if (package.empty() || !line)
+            return;
+
+        // 过滤包名中的路径分隔符等字符，避免目录穿越
+        std::string safe;
+        for (char c : package)
+        {
+            if (isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '_' || c == '-')
+                safe.push_back(c);
+        }
+        if (safe.empty())
+            return;
+
+        time_t now = time(nullptr);
+        struct tm tm{};
+        localtime_r(&now, &tm);
+        char date[32];
+        snprintf(date, sizeof(date), "%04d-%02d-%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
+
+        std::string dir = std::string("/data/adb/NirithyInject/") + safe;
+        mkdir("/data/adb/NirithyInject", 0755);
+        mkdir(dir.c_str(), 0755);
+        std::string file = dir + "/" + date + ".log";
+
+        int fd = open(file.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd < 0)
+            return;
+
+        char buf[1152];
+        int n = snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d %s\n",
+                         tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+                         tm.tm_hour, tm.tm_min, tm.tm_sec, line);
+        if (n > 0)
+            (void)write(fd, buf, (size_t)n);
+        close(fd);
     }
 
     void AppendInjectLog(const char *line)

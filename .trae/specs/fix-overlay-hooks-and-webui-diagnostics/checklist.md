@@ -1,0 +1,11 @@
+- [x] `consume` 钩子的 `nsecs_t` 参数以 `int64_t` 声明，32 位下不再错位
+- [x] `Input` 等其余输入钩子签名与 `android::InputConsumer` 真实 ABI 一致
+- [x] `eglSwapBuffers` 与 `eglSwapBuffersWithDamage*` 同时命中时，每帧 `internalDrawMenu` 至多执行一次
+- [x] 仅命中单个交换缓冲入口时叠加层仍正常绘制
+- [x] arm64-v8a 与 armeabi-v7a 的 Debug 构建均通过
+- [x] WebUI 可读取并展示 `/data/adb/il2cpp_tool/inject.log`，支持刷新
+- [x] `inject.log` 缺失或 `ksu` 不可用时有明确提示，不报错中断
+- [x] `webroot/index.html` 为单文件、无外链，与 `webui/` 构建产物一致
+- [x] 模块 zip 内含 `uninstall.sh`，卸载会清理 `/data/adb/il2cpp_tool`
+- [x] zh-TW 下关键文案显示为繁体，不回退简体
+- [x] `:app:assembleDebug` 与 `:app:assembleZygiskModule` 均通过

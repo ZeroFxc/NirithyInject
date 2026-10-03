@@ -21,4 +21,6 @@ namespace Targets
     std::string ParsePackageFromDataDir(const std::string &dir);
     bool IsZygoteProcess();
     void AppendInjectLog(const char *line);
+    // root companion 专用：把一行日志追加到 /data/adb/NirithyInject/<包名>/<日期>.log
+    void AppendPackageLog(const std::string &package, const char *line);
 } // namespace Targets

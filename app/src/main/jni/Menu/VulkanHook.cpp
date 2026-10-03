@@ -79,8 +79,6 @@ static PFN_vkCreateDevice orig_vkCreateDevice = nullptr;
 static PFN_vkCreateSwapchainKHR orig_vkCreateSwapchainKHR = nullptr;
 static PFN_vkDestroySwapchainKHR orig_vkDestroySwapchainKHR = nullptr;
 static PFN_vkQueuePresentKHR orig_vkQueuePresentKHR = nullptr;
-static PFN_vkGetDeviceProcAddr orig_vkGetDeviceProcAddr = nullptr;
-static PFN_vkGetInstanceProcAddr orig_vkGetInstanceProcAddr = nullptr;
 
 struct OverlayFrame
 {
@@ -491,37 +489,16 @@ static VkResult hooked_vkCreateDevice(VkPhysicalDevice phys, const VkDeviceCreat
     return r;
 }
 
-static PFN_vkVoidFunction hooked_vkGetDeviceProcAddr(VkDevice device, const char *name)
-{
-    if (name)
-    {
-        if (strcmp(name, "vkQueuePresentKHR") == 0)
-            return (PFN_vkVoidFunction)hooked_vkQueuePresentKHR;
-        if (strcmp(name, "vkCreateSwapchainKHR") == 0)
-            return (PFN_vkVoidFunction)hooked_vkCreateSwapchainKHR;
-        if (strcmp(name, "vkDestroySwapchainKHR") == 0)
-            return (PFN_vkVoidFunction)hooked_vkDestroySwapchainKHR;
-    }
-    return orig_vkGetDeviceProcAddr ? orig_vkGetDeviceProcAddr(device, name) : nullptr;
-}
-
-static PFN_vkVoidFunction hooked_vkGetInstanceProcAddr(VkInstance instance, const char *name)
-{
-    if (instance)
-        g_ov.instance = instance;
-    if (name)
-    {
-        if (strcmp(name, "vkGetDeviceProcAddr") == 0)
-            return (PFN_vkVoidFunction)hooked_vkGetDeviceProcAddr;
-        if (strcmp(name, "vkCreateDevice") == 0)
-            return (PFN_vkVoidFunction)hooked_vkCreateDevice;
-        if (strcmp(name, "vkQueuePresentKHR") == 0)
-            return (PFN_vkVoidFunction)hooked_vkQueuePresentKHR;
-        if (strcmp(name, "vkCreateSwapchainKHR") == 0)
-            return (PFN_vkVoidFunction)hooked_vkCreateSwapchainKHR;
-    }
-    return orig_vkGetInstanceProcAddr ? orig_vkGetInstanceProcAddr(instance, name) : nullptr;
-}
+// 注意：这里刻意【不使用】Dobby inline hook vkGetInstanceProcAddr / vkGetDeviceProcAddr。
+// Android 16（该设备 Build fingerprint 为 OnePlus/OP60EBL1:16）启用了 PAC/BTI，libvulkan.so
+// 中这两个导出函数的入口首条指令是 BTI landing pad（bti c，编码 0xd503245f）。Dobby 覆盖入口
+// 后首条不再是 BTI 指令，而系统 libhwui 的 RenderThread::requireVkContext ->
+// VulkanManager::initialize() 也会用 blr 直接调用它们，跳入时 BTI 校验失败，报
+// SIGILL/ILL_ILLOPC，fault addr 恰为函数入口。
+// 已在 04_10-04-00-31_865.log 确认：pc == 0x7c9b160440 == libvulkan.so vkGetInstanceProcAddr
+// （vaddr 0x1e440），调用栈 #01 为 libhwui VulkanManager::initialize()。
+// device 级函数（vkCreateDevice / vkQueuePresentKHR / vkCreateSwapchainKHR 等）已由下方
+// 直接 DobbyHook 拦截，无需再劫持 GIPA/GDPA。
 
 void initVulkanHooks()
 {
@@ -548,28 +525,24 @@ void initVulkanHooks()
         return;
     }
     loadVulkanProc(g_vulkanLib);
-    auto gipa = dlsym(g_vulkanLib, OBFUSCATE("vkGetInstanceProcAddr"));
-    auto gdpa = dlsym(g_vulkanLib, OBFUSCATE("vkGetDeviceProcAddr"));
     auto createDev = dlsym(g_vulkanLib, OBFUSCATE("vkCreateDevice"));
     auto present = dlsym(g_vulkanLib, OBFUSCATE("vkQueuePresentKHR"));
     auto createSc = dlsym(g_vulkanLib, OBFUSCATE("vkCreateSwapchainKHR"));
     auto destroySc = dlsym(g_vulkanLib, OBFUSCATE("vkDestroySwapchainKHR"));
 
-    if (gipa)
-        DobbyHook(gipa, (void *)hooked_vkGetInstanceProcAddr, (void **)&orig_vkGetInstanceProcAddr);
-    if (gdpa)
-        DobbyHook(gdpa, (void *)hooked_vkGetDeviceProcAddr, (void **)&orig_vkGetDeviceProcAddr);
-    if (createDev)
-        DobbyHook(createDev, (void *)hooked_vkCreateDevice, (void **)&orig_vkCreateDevice);
-    if (present)
-        DobbyHook(present, (void *)hooked_vkQueuePresentKHR, (void **)&orig_vkQueuePresentKHR);
-    if (createSc)
-        DobbyHook(createSc, (void *)hooked_vkCreateSwapchainKHR, (void **)&orig_vkCreateSwapchainKHR);
-    if (destroySc)
-        DobbyHook(destroySc, (void *)hooked_vkDestroySwapchainKHR, (void **)&orig_vkDestroySwapchainKHR);
+    if (!createDev || !present || !createSc || !destroySc)
+        LOGI("Vulkan symbols missing: device=%d present=%d swapchain=%d destroy=%d",
+             createDev != nullptr, present != nullptr, createSc != nullptr, destroySc != nullptr);
 
-    orig_vkGetInstanceProcAddr = orig_vkGetInstanceProcAddr ? orig_vkGetInstanceProcAddr : pvkGetInstanceProcAddr;
-    orig_vkGetDeviceProcAddr = orig_vkGetDeviceProcAddr ? orig_vkGetDeviceProcAddr : pvkGetDeviceProcAddr;
+    if (createDev && DobbyHook(createDev, (void *)hooked_vkCreateDevice, (void **)&orig_vkCreateDevice) != 0)
+        LOGI("DobbyHook vkCreateDevice failed");
+    if (present && DobbyHook(present, (void *)hooked_vkQueuePresentKHR, (void **)&orig_vkQueuePresentKHR) != 0)
+        LOGI("DobbyHook vkQueuePresentKHR failed");
+    if (createSc && DobbyHook(createSc, (void *)hooked_vkCreateSwapchainKHR, (void **)&orig_vkCreateSwapchainKHR) != 0)
+        LOGI("DobbyHook vkCreateSwapchainKHR failed");
+    if (destroySc && DobbyHook(destroySc, (void *)hooked_vkDestroySwapchainKHR, (void **)&orig_vkDestroySwapchainKHR) != 0)
+        LOGI("DobbyHook vkDestroySwapchainKHR failed");
+
     LOGI("Vulkan overlay hooks installed");
 }
 

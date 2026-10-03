@@ -13,6 +13,7 @@
 #include "Tool/Keyboard.h"
 #include "Tool/Lang.h"
 #include "Tool/Memory.h"
+#include "Tool/SessionLog.h"
 #include "Tool/TextureCache.h"
 #include "Tool/Targets.h"
 #include "Tool/Tool.h"
@@ -23,6 +24,7 @@
 #include "jni.h"
 #include "Tool/Unity.h"
 #include <atomic>
+#include <cstdint>
 
 void logcatJson(nlohmann::ordered_json &json)
 {
@@ -809,7 +811,9 @@ void on_init()
 }
 
 bool useJava = false;
-void *hack_thread(void *)
+// arg 为 Zygisk preAppSpecialize 阶段建立的 root companion 日志通道 fd（转成 intptr_t），
+// -1 表示无通道（APK 进程内注入），此时会话日志回退到应用私有目录。
+void *hack_thread(void *arg)
 {
     bool expected = false;
     if (!g_hackStarted.compare_exchange_strong(expected, true))
@@ -818,13 +822,24 @@ void *hack_thread(void *)
         return nullptr;
     }
     logger::Clear();
+    // 必须在任何 LOGx 之前初始化，否则最早的几行日志无法落盘
+    SessionLog::Init((int)(intptr_t)arg, Targets::CurrentProcessPackage());
+    LOGI("session log started (channel=%d)", (int)(intptr_t)arg);
 
     LOGI("pthread created");
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     LOGINT(useJava);
+    LOGI("initVulkanHooks begin");
     initVulkanHooks();
+    LOGI("initVulkanHooks done");
     if (!useJava)
+    {
+        LOGI("initModMenu begin");
         initModMenu((void *)draw_thread, (void *)on_init);
+        LOGI("initModMenu returned");
+    }
+    else
+        LOGI("java mode: waiting for onSurfaceCreate");
     return nullptr;
 }
 
@@ -862,18 +877,29 @@ extern "C"
 // instead; the atomic in hack_thread de-dupes the two.
 __attribute__((constructor)) void lib_main()
 {
+    // 关键诊断点：so 被进程 dlopen 后立即执行，能区分“模块没加载”与“加载了但没进目标名单”
+    LOGI("constructor: module lib loaded");
     // If a Zygisk allow-list exists and this process is not on it, skip.
     if (Targets::ConfigExists())
     {
         auto pkg = Targets::CurrentProcessPackage();
+        LOGI("constructor: config exists, pkg='%s'", pkg.c_str());
         if (!Targets::Contains(pkg))
         {
             LOGI("constructor: skip non-target %s", pkg.c_str());
             return;
         }
+        LOGI("constructor: pkg is a target, starting hack_thread");
+    }
+    else
+    {
+        LOGI("constructor: no allow-list, injecting unconditionally");
     }
     pthread_t ptid;
-    pthread_create(&ptid, nullptr, hack_thread, nullptr);
+    if (pthread_create(&ptid, nullptr, hack_thread, (void *)(intptr_t)-1) != 0)
+        LOGI("constructor: pthread_create failed");
+    else
+        LOGI("constructor: hack_thread created");
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, [[maybe_unused]] void *reserved)
@@ -889,6 +915,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, [[maybe_unused]] void *reserved)
     {
         useJava = true;
     }
+    LOGI("JNI_OnLoad: useJava=%d", (int)useJava);
 
     return JNI_VERSION_1_6;
 }

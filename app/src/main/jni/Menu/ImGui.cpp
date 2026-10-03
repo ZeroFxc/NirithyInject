@@ -169,6 +169,13 @@ static EGLBoolean swap_damage_hook(EGLDisplay dpy, EGLSurface surf, EGLint *rect
     EGLint w = 0, h = 0;
     eglQuerySurface(dpy, surf, EGL_WIDTH, &w);
     eglQuerySurface(dpy, surf, EGL_HEIGHT, &h);
+    // 首次回调日志：用于区分游戏走的是 WithDamage 变体还是 eglSwapBuffers
+    static bool s_firstDamageLogged = false;
+    if (!s_firstDamageLogged)
+    {
+        s_firstDamageLogged = true;
+        LOGI("eglSwapBuffersWithDamage called first time (%dx%d)", w, h);
+    }
     if (w > 0 && h > 0)
     {
         glWidth = w;
@@ -216,17 +223,27 @@ void installOverlayHooks()
         "_ZN7android13InputConsumer7consumeEPNS_26InputEventFactoryInterfaceEblPjPPNS_10InputEventE";
     static const char *kConsume2 =
         "_ZN7android13InputConsumer7ConsumeEPNS_26InputEventFactoryInterfaceEblPjPPNS_10InputEventE";
-    for (auto lib : kInputLibs)
+    // libinput.so 属于 Activity 输入栈的系统库，进程启动时即已加载；Android 16 上这些
+    // InputConsumer 方法已不再是导出符号（dlopen 成功但 dlsym 必然失败），后台重试永远不会
+    // 成功。这里只解析一次，避免后台线程每秒重新 dlopen/dlsym 并重复刷 symbol not found。
+    static bool s_inputHooksSettled = false;
+    if (!s_inputHooksSettled)
     {
-        if (!origInput)
-            hookAddr(resolveSym(lib, kMotion), (void *)myInput, (void **)&origInput, "InputConsumer.initializeMotionEvent");
-        if (!origConsume)
+        for (auto lib : kInputLibs)
         {
-            void *c = resolveSym(lib, kConsume);
-            if (!c)
-                c = resolveSym(lib, kConsume2);
-            hookAddr(c, (void *)myConsume, (void **)&origConsume, "InputConsumer.consume");
+            if (!origInput)
+                hookAddr(resolveSym(lib, kMotion), (void *)myInput, (void **)&origInput, "InputConsumer.initializeMotionEvent");
+            if (!origConsume)
+            {
+                void *c = resolveSym(lib, kConsume);
+                if (!c)
+                    c = resolveSym(lib, kConsume2);
+                hookAddr(c, (void *)myConsume, (void **)&origConsume, "InputConsumer.consume");
+            }
         }
+        s_inputHooksSettled = true;
+        if (!origInput || !origConsume)
+            LOGI("%s", (char *)OBFUSCATE("input hooks unavailable on this Android version (libinput symbols hidden)"));
     }
 }
 
@@ -655,6 +672,13 @@ EGLBoolean swapbuffers_hook(EGLDisplay dpy, EGLSurface surf)
     EGLint w, h;
     eglQuerySurface(dpy, surf, EGL_WIDTH, &w);
     eglQuerySurface(dpy, surf, EGL_HEIGHT, &h);
+    // 首次回调日志：证明游戏确实走到了被 hook 的 eglSwapBuffers（即 overlay 真正上屏）
+    static bool s_firstSwapLogged = false;
+    if (!s_firstSwapLogged)
+    {
+        s_firstSwapLogged = true;
+        LOGI("eglSwapBuffers called first time (%dx%d)", w, h);
+    }
     glWidth = w;
     glHeight = h;
 

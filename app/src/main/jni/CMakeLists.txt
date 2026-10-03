@@ -52,6 +52,7 @@ set(LOCAL_SRC_FILES
         Tool/ClassesTab.cpp
         Tool/Clipboard.cpp
         Tool/Memory.cpp
+        Tool/SessionLog.cpp
         Tool/Unity.cpp
         Tool/TextureCache.cpp
         Tool/Targets.cpp
