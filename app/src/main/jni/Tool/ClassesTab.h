@@ -113,6 +113,18 @@ struct ClassesTab
     bool MethodViewer(Il2CppClass *klass, MethodInfo *method, const MethodParamList &paramsInfo,
                       Il2CppObject *thiz = nullptr, bool includeInflated = false);
 
+    struct MethodCard
+    {
+        ClassesTab *owner = nullptr;
+        Il2CppClass *klass = nullptr;
+        MethodInfo *method = nullptr;
+        MethodParamList params;
+        Il2CppObject *thiz = nullptr;
+        bool open = false;
+    };
+    static MethodCard methodCard;
+    static void DrawMethodDetailCard();
+
     static std::unordered_map<Il2CppClass *, bool> states;
     void ClassViewer(Il2CppClass *klass);
     void StaticFieldViewer(Il2CppClass *klass);

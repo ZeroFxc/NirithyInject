@@ -24,6 +24,9 @@ extern bool sideSplit;
 
 constexpr int MAX_CLASSES = 500;
 
+ClassesTab::MethodCard ClassesTab::methodCard{};
+
+
 int maxLine{5};
 std::unordered_map<void *, HookerData> hookerMap;
 std::mutex hookerMtx;
@@ -1781,6 +1784,7 @@ void ClassesTab::HookerView(Il2CppClass *klass, MethodInfo *method, const Method
 bool ClassesTab::MethodViewer(Il2CppClass *klass, MethodInfo *method, const MethodParamList &paramsInfo,
                               Il2CppObject *thiz, bool includeInflated)
 {
+    (void)includeInflated;
     bool zeroPointer = method->methodPointer == nullptr;
 
     if (callResults.find(method) == callResults.end())
@@ -1791,7 +1795,7 @@ bool ClassesTab::MethodViewer(Il2CppClass *klass, MethodInfo *method, const Meth
     bool methodIsStatic = Il2cpp::GetIsMethodStatic(method);
 
     char treeLabel[512]{0};
-    sprintf(treeLabel, "%s %s(%zu)###", method->getReturnType()->getName(), method->getName(), paramsInfo.size());
+    sprintf(treeLabel, "%s %s(%zu)", method->getReturnType()->getName(), method->getName(), paramsInfo.size());
     int pushedColor = 0;
     if (methodIsStatic)
     {
@@ -1801,7 +1805,6 @@ bool ClassesTab::MethodViewer(Il2CppClass *klass, MethodInfo *method, const Meth
     }
     bool patched = oMap[method].bytes.empty() == false;
     bool hooked = hookerMap.find(method->methodPointer) != hookerMap.end();
-    // sprintf(treeLabel, "%s##%p", treeLabel, method + j);
     if (zeroPointer)
     {
         ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 100, 100, 255));
@@ -1828,54 +1831,90 @@ bool ClassesTab::MethodViewer(Il2CppClass *klass, MethodInfo *method, const Meth
                 Util::prependStringToBuffer(treeLabel, buff);
             }
         }
-        // 状态图标前缀：已挂钩 [H]、已打补丁 [P]（保留原有 Hit Count / Returns 文本与颜色）
         if (hooked)
             Util::prependStringToBuffer(treeLabel, "[H] ");
         if (patched)
             Util::prependStringToBuffer(treeLabel, "[P] ");
     }
-    bool state = ImGui::TreeNode(treeLabel);
-    if (state)
+
+    bool selected = methodCard.open && methodCard.method == method;
+    bool clicked = ImGui::Selectable(treeLabel, selected);
+    if (pushedColor)
+        ImGui::PopStyleColor(pushedColor);
+    if (clicked)
     {
-        if (pushedColor)
-        {
-            ImGui::PopStyleColor(pushedColor);
-            pushedColor = 0;
-        }
-
-        // 方法绝对地址与复制按钮
-        {
-            auto absAddress = method->getAbsAddress();
-            ImGui::Text("%s %p", Lang::T("方法地址 :", "Method address :"), reinterpret_cast<void *>(absAddress));
-            ImGui::SameLine();
-            CopyAddressButton("methodAddr", reinterpret_cast<void *>(absAddress));
-            ImGui::Separator();
-        }
-
-        if (ImGui::BeginTabBar("##methoder"))
-        {
-            if (ImGui::BeginTabItem(Lang::T("调用", "Caller")))
-            {
-                CallerView(klass, method, paramsInfo, thiz);
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem(Lang::T("补丁", "Patcher")))
-            {
-                PatcherView(klass, method, paramsInfo, thiz);
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem(Lang::T("跟踪", "Tracer")))
-            {
-                HookerView(klass, method, paramsInfo, thiz);
-                ImGui::EndTabItem();
-            }
-            ImGui::EndTabBar();
-        }
-        ImGui::TreePop();
+        methodCard.owner = this;
+        methodCard.klass = klass;
+        methodCard.method = method;
+        methodCard.params = paramsInfo;
+        methodCard.thiz = thiz;
+        methodCard.open = true;
     }
     poper.Update();
-    ImGui::PopStyleColor(pushedColor);
-    return state;
+    return selected;
+}
+
+void ClassesTab::DrawMethodDetailCard()
+{
+    if (!methodCard.open || !methodCard.method || !methodCard.klass)
+        return;
+
+    auto *method = methodCard.method;
+    auto *klass = methodCard.klass;
+    auto &paramsInfo = methodCard.params;
+    auto *thiz = methodCard.thiz;
+
+    ImGuiIO &io = ImGui::GetIO();
+    ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x * 0.86f, io.DisplaySize.y * 0.52f), ImGuiCond_Appearing);
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.07f, io.DisplaySize.y * 0.24f), ImGuiCond_Appearing);
+
+    char title[384]{0};
+    snprintf(title, sizeof(title), "%s  %s::%s###MethodDetailCard", Lang::tr("method.card"),
+             klass->getName(), method->getName());
+    if (!ImGui::Begin(title, &methodCard.open, ImGuiWindowFlags_NoCollapse))
+    {
+        ImGui::End();
+        return;
+    }
+
+    if (ImGui::BeginTabBar("##methoder"))
+    {
+        if (ImGui::BeginTabItem(Lang::tr("tab.info")))
+        {
+            ImGui::Text("%s: %s", Lang::T("类", "Class"), klass->getFullName().c_str());
+            ImGui::Text("%s: %s", Lang::tr("method.signature"), method->getName());
+            ImGui::Text("%s: %s", Lang::T("返回", "Return"), method->getReturnType()->getName());
+            ImGui::Text("%s: %s", Lang::T("种类", "Kind"),
+                        Il2cpp::GetIsMethodStatic(method) ? Lang::tr("method.static") : Lang::tr("method.instance"));
+            auto absAddress = method->getAbsAddress();
+            ImGui::Text("%s: %p", Lang::tr("method.address"), reinterpret_cast<void *>(absAddress));
+            ImGui::SameLine();
+            CopyAddressButton("methodAddrCard", reinterpret_cast<void *>(absAddress));
+            ImGui::Separator();
+            ImGui::Text("%s (%zu)", Lang::T("参数", "Parameters"), paramsInfo.size());
+            for (size_t i = 0; i < paramsInfo.size(); i++)
+                ImGui::BulletText("%s %s", paramsInfo[i].second->getName(), paramsInfo[i].first);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem(Lang::tr("tab.call")))
+        {
+            methodCard.owner->CallerView(klass, method, paramsInfo, thiz);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem(Lang::tr("tab.patch")))
+        {
+            methodCard.owner->PatcherView(klass, method, paramsInfo, thiz);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem(Lang::tr("tab.trace")))
+        {
+            methodCard.owner->HookerView(klass, method, paramsInfo, thiz);
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    poper.Update();
+    ImGui::End();
 }
 
 const ClassesTab::MethodParamList &ClassesTab::getCachedParams(MethodInfo *method)
@@ -2291,6 +2330,9 @@ void ClassesTab::Draw(int index, bool closeable)
             }
         }
         ImGui::EndTabItem();
+        // 方法详情卡片为独立浮动窗口，仅由拥有它的实例绘制（避免选项卡销毁后指针悬空）
+        if (methodCard.owner == this)
+            DrawMethodDetailCard();
     }
 }
 void ClassesTab::DrawTabMap()
