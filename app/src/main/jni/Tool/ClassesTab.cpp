@@ -70,6 +70,23 @@ static bool IsAddressReadable(uintptr_t address)
     return readable;
 }
 
+// 在地址旁绘制复制按钮，点击后将地址以十六进制文本写入系统剪贴板
+// id: ImGui ID 后缀（同一作用域内需唯一）；address: 待复制的地址
+static void CopyAddressButton(const char *id, const void *address)
+{
+    ImGui::PushID(id);
+    if (ImGui::SmallButton(Lang::T("复制地址", "Copy address")))
+    {
+        char hex[32]{0};
+        snprintf(hex, sizeof(hex), "%p", address);
+        if (Clipboard::Set(hex))
+            LOGD("Copied address: %s", hex);
+        else
+            LOGE("Failed to copy address: %s", hex);
+    }
+    ImGui::PopID();
+}
+
 // 将文本解析为跟踪器参数替换值（原始 ABI 值，可直接写入寄存器）
 // type: 参数类型；text: 用户输入文本；keepAlive: 引用类型（字符串）保活对象输出
 // 返回值可直接用于 Gum 的 replace_nth_argument；解析失败或类型不支持时返回 nullptr
@@ -392,6 +409,8 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                     {
                         ++it;
                     }
+                    ImGui::SameLine();
+                    CopyAddressButton("copyAddr", object);
                     ImGui::PopID();
                 }
             }
@@ -1822,6 +1841,15 @@ bool ClassesTab::MethodViewer(Il2CppClass *klass, MethodInfo *method, const Meth
         {
             ImGui::PopStyleColor(pushedColor);
             pushedColor = 0;
+        }
+
+        // 方法绝对地址与复制按钮
+        {
+            auto absAddress = method->getAbsAddress();
+            ImGui::Text("%s %p", Lang::T("方法地址 :", "Method address :"), reinterpret_cast<void *>(absAddress));
+            ImGui::SameLine();
+            CopyAddressButton("methodAddr", reinterpret_cast<void *>(absAddress));
+            ImGui::Separator();
         }
 
         if (ImGui::BeginTabBar("##methoder"))
