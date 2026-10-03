@@ -39,6 +39,80 @@ static Il2CppObject *CreateZeroInitValueType(Il2CppClass *klass)
     return Il2cpp::GetBoxedValue(klass, zero.data());
 }
 
+// 将文本解析为跟踪器参数替换值（原始 ABI 值，可直接写入寄存器）
+// type: 参数类型；text: 用户输入文本；keepAlive: 引用类型（字符串）保活对象输出
+// 返回值可直接用于 Gum 的 replace_nth_argument；解析失败或类型不支持时返回 nullptr
+static void *ParseHookerArgValue(Il2CppType *type, const std::string &text, Il2CppObject **keepAlive)
+{
+    if (keepAlive)
+        *keepAlive = nullptr;
+    if (!type || text.empty())
+        return nullptr;
+
+    const char *typeName = type->getName();
+    try
+    {
+        // 字符串：创建托管字符串并交给调用方保活
+        if (strcmp(typeName, "System.String") == 0)
+        {
+            auto str = Il2cpp::NewString(text.c_str());
+            if (keepAlive)
+                *keepAlive = str;
+            return str;
+        }
+
+        // 基元类型：按原始位模式写入寄存器
+        if (type->isPrimitive())
+        {
+            uint64_t bits = 0;
+            if (strcmp(typeName, "System.Boolean") == 0)
+            {
+                bits = (text == "True" || text == "true" || text == "1") ? 1 : 0;
+            }
+            else if (strcmp(typeName, "System.Single") == 0)
+            {
+                float value = std::stof(text);
+                memcpy(&bits, &value, sizeof(value));
+            }
+            else if (strcmp(typeName, "System.Double") == 0)
+            {
+                // double 需要 64 位寄存器才能承载完整位模式
+                if (sizeof(void *) < sizeof(double))
+                {
+                    LOGE("Double arg override requires 64-bit, skipped: %s", typeName);
+                    return nullptr;
+                }
+                double value = std::stod(text);
+                memcpy(&bits, &value, sizeof(value));
+            }
+            else
+            {
+                bits = static_cast<uint64_t>(std::stoll(text));
+            }
+            return reinterpret_cast<void *>(static_cast<uintptr_t>(bits));
+        }
+
+        // 枚举按底层整数传递
+        if (type->isEnum())
+            return reinterpret_cast<void *>(static_cast<uintptr_t>(std::stoll(text)));
+
+        // IntPtr/UIntPtr 与普通引用类型：按地址解析（支持 0x 十六进制）
+        if (strcmp(typeName, "System.IntPtr") == 0 || strcmp(typeName, "System.UIntPtr") == 0)
+            return reinterpret_cast<void *>(static_cast<uintptr_t>(std::stoull(text, nullptr, 0)));
+
+        if (!type->isValueType())
+            return reinterpret_cast<void *>(static_cast<uintptr_t>(std::stoull(text, nullptr, 0)));
+
+        // 结构体等复杂值类型暂不支持直接覆写
+        LOGE("Unsupported hooker arg type: %s", typeName);
+    }
+    catch (const std::exception &e)
+    {
+        LOGE("Failed to parse hooker arg (%s): %s", typeName, e.what());
+    }
+    return nullptr;
+}
+
 #ifndef USE_FRIDA
 void hookerHandler(void *address, DobbyRegisterContext *ctx)
 {
@@ -1414,6 +1488,42 @@ void ClassesTab::HookerView(Il2CppClass *klass, MethodInfo *method, const Method
     ImGui::Separator();
     if (hooked)
     {
+        // 调用参数修改：输入后在方法被调用时替换对应参数（static 从 idx0，非 static 从 idx1）
+        if (!paramsInfo.empty())
+        {
+            ImGui::Text("%s", Lang::T("修改调用参数 :", "Override call arguments :"));
+            auto &mods = hookerArgMods[method];
+            for (int k = 0; k < (int)paramsInfo.size(); k++)
+            {
+                auto &[name, type] = paramsInfo[k];
+                ImGui::PushID(k);
+
+                auto modIt = mods.find(k);
+                bool overridden = modIt != mods.end() && !modIt->second.text.empty();
+                const char *shownText = overridden ? modIt->second.text.c_str() : Lang::T("未修改", "not overridden");
+                char btnLabel[192];
+                snprintf(btnLabel, sizeof(btnLabel), "%s %s = %s", type->getName(), name, shownText);
+
+                if (ImGui::Button(btnLabel))
+                {
+                    Keyboard::Open(
+                        [method, k, type](const std::string &text)
+                        {
+                            auto &mod = hookerArgMods[method][k];
+                            mod.text = text;
+                            mod.value = ParseHookerArgValue(type, text, &mod.keepAlive);
+                        });
+                }
+                ImGui::SameLine();
+                if (ImGui::Button(Lang::T("清除", "Clear")))
+                {
+                    mods.erase(k);
+                }
+                ImGui::PopID();
+            }
+            ImGui::Separator();
+        }
+
         auto &backtraced = it->second.backtraced;
         if (!it->second.backtracing)
         {
@@ -2818,5 +2928,6 @@ std::unordered_map<Il2CppClass *, std::vector<Il2CppObject *>> ClassesTab::objec
 std::unordered_map<Il2CppClass *, std::vector<Il2CppObject *>> ClassesTab::newObjectMap;
 std::unordered_map<Il2CppClass *, std::set<Il2CppObject *>> ClassesTab::savedSet;
 std::unordered_map<MethodInfo *, ClassesTab::OriginalMethodBytes> ClassesTab::oMap;
+std::unordered_map<MethodInfo *, std::unordered_map<int, ClassesTab::HookerArgMod>> ClassesTab::hookerArgMods;
 std::unordered_map<Il2CppClass *, bool> ClassesTab::states;
 PopUpSelector ClassesTab::poper;

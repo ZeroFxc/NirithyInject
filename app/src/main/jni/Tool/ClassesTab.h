@@ -64,6 +64,15 @@ struct ClassesTab
         Il2CppObject *object = nullptr;  // 返回对象，可展开时为非空
     };
 
+    // 跟踪器参数修改：方法 -> (参数下标 k -> 覆写信息)
+    struct HookerArgMod
+    {
+        std::string text;                  // 用户输入的覆写文本（仅用于界面显示）
+        void *value = nullptr;             // 解析后的原始 ABI 参数值，可直接替换寄存器
+        Il2CppObject *keepAlive = nullptr; // 引用类型替换值的保活对象
+    };
+    static std::unordered_map<MethodInfo *, std::unordered_map<int, HookerArgMod>> hookerArgMods;
+
     std::unordered_map<MethodInfo *, std::unordered_map<std::string, ParamValue>> paramMap{};
     std::unordered_map<MethodInfo *, CircularBuffer<CallResult>> callResults{};
 

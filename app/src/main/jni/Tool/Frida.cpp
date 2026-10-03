@@ -132,6 +132,21 @@ namespace Frida
             hookerData->hitCount++;
             hookerData->time = 1.f;
 
+            // 应用调用参数修改：static 方法参数从 idx0 开始，非 static 的 this 占 idx0
+            {
+                auto modIt = ClassesTab::hookerArgMods.find(hookerData->method);
+                if (modIt != ClassesTab::hookerArgMods.end())
+                {
+                    int argBase = Il2cpp::GetIsMethodStatic(hookerData->method) ? 0 : 1;
+                    for (auto &[paramIndex, mod] : modIt->second)
+                    {
+                        if (!mod.value)
+                            continue;
+                        context->replace_nth_argument((unsigned int)(argBase + paramIndex), mod.value);
+                    }
+                }
+            }
+
             if (!Il2cpp::GetIsMethodStatic(hookerData->method))
             {
                 auto klass = hookerData->method->getClass();
