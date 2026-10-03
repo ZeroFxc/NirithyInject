@@ -11,6 +11,7 @@
 #include "Menu/VulkanHook.h"
 #include "Tool/Keyboard.h"
 #include "Tool/Lang.h"
+#include "Tool/Memory.h"
 #include "Tool/TextureCache.h"
 #include "Tool/Targets.h"
 #include "Tool/Tool.h"
@@ -67,6 +68,8 @@ bool tabShowTools = true;
 bool tabShowTracer = true;
 bool tabShowDumper = true;
 bool tabShowSettings = true;
+// 内存查看选项卡（默认隐藏）
+bool tabShowMemory = false;
 
 // 双指滚动开关
 bool twoFingerScroll = true;
@@ -345,6 +348,14 @@ void draw_thread()
                 ImGui::EndTabItem();
             }
         }
+        if (tabShowMemory)
+        {
+            if (ImGui::BeginTabItem(Lang::T("内存", "Memory")))
+            {
+                Memory::Draw();
+                ImGui::EndTabItem();
+            }
+        }
         if (tabShowSettings)
         {
             if (ImGui::BeginTabItem(Lang::T("设置", "Settings")))
@@ -358,6 +369,8 @@ void draw_thread()
                 ConfigSet("tabShowTracer", tabShowTracer);
             if (ImGui::Checkbox(Lang::T("转储", "Dumper"), &tabShowDumper))
                 ConfigSet("tabShowDumper", tabShowDumper);
+            if (ImGui::Checkbox(Lang::T("内存", "Memory"), &tabShowMemory))
+                ConfigSet("tabShowMemory", tabShowMemory);
             if (ImGui::Checkbox(Lang::T("设置", "Settings"), &tabShowSettings))
                 ConfigSet("tabShowSettings", tabShowSettings);
             if (ImGui::Checkbox(Lang::T("双指滚动", "Two-finger scroll"), &twoFingerScroll))
@@ -690,6 +703,7 @@ void on_init()
     tabShowTracer = ConfigGet<bool>("tabShowTracer", true);
     tabShowDumper = ConfigGet<bool>("tabShowDumper", true);
     tabShowSettings = ConfigGet<bool>("tabShowSettings", true);
+    tabShowMemory = ConfigGet<bool>("tabShowMemory", false);
     twoFingerScroll = ConfigGet<bool>("twoFingerScroll", true);
     touchPassthrough = ConfigGet<bool>("touchPassthrough", false);
     saferInspector = ConfigGet<bool>("saferInspector", false);

@@ -50,6 +50,7 @@ set(LOCAL_SRC_FILES
         Tool/PopUpSelector.cpp
         Tool/ClassesTab.cpp
         Tool/Clipboard.cpp
+        Tool/Memory.cpp
         Tool/Unity.cpp
         Tool/TextureCache.cpp
         Tool/Targets.cpp
