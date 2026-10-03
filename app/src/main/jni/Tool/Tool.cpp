@@ -2,6 +2,7 @@
 #include "Il2cpp/Il2cpp.h"
 #include "Tool/Frida.h"
 #include "Tool/Keyboard.h"
+#include "Tool/Lang.h"
 #include "Tool/Util.h"
 #include "imgui/imgui.h"
 #include <future>
@@ -16,6 +17,10 @@
 extern ImVec2 initialScreenSize;
 extern std::unordered_map<void *, HookerData> hookerMap;
 extern std::mutex hookerMtx;
+// 自动转储开关（定义于 Main.cpp，随全局配置持久化）
+extern bool autoDump;
+// 将全局配置写回 tool_conf.json（定义于 Main.cpp）
+void SaveGlobalConfig();
 
 std::vector<Il2CppImage *> g_Images;
 
@@ -244,6 +249,18 @@ namespace Tool
         }
 
         static bool dumping = false;
+
+        // 自动转储开关：开启后进入该页面即自动开始一次转储
+        if (ImGui::Checkbox(Lang::T("自动转储", "Auto dump"), &autoDump))
+            SaveGlobalConfig();
+
+        static bool autoStarted = false;
+        if (autoDump && !autoStarted && !dumping)
+        {
+            autoStarted = true;
+            dumping = true;
+        }
+
         if (ImGui::Button("DUMP"))
         {
             if (dumping)

@@ -71,6 +71,9 @@ bool tabShowSettings = true;
 // 内存查看选项卡（默认隐藏）
 bool tabShowMemory = false;
 
+// 自动转储：进入转储页面后自动开始一次转储
+bool autoDump = false;
+
 // 双指滚动开关
 bool twoFingerScroll = true;
 
@@ -608,14 +611,21 @@ void draw_thread()
 
 static nlohmann::ordered_json gConf;
 
+// 将全局配置写回 tool_conf.json（供其它模块修改共享开关后调用）
+void SaveGlobalConfig()
+{
+    LOGD(__FUNCTION__);
+    Util::FileWriter fileWriter("tool_conf.json");
+    fileWriter.write(gConf.dump(2).c_str());
+}
+
 template <typename T>
 void ConfigSet(const char *key, T value)
 {
     LOGD(__FUNCTION__);
     gConf[key] = value;
     LOGD("ConfigWrite %s = %s", key, gConf[key].dump().c_str());
-    Util::FileWriter fileWriter("tool_conf.json");
-    fileWriter.write(gConf.dump(2).c_str());
+    SaveGlobalConfig();
 }
 
 template <typename T>
@@ -704,6 +714,7 @@ void on_init()
     tabShowDumper = ConfigGet<bool>("tabShowDumper", true);
     tabShowSettings = ConfigGet<bool>("tabShowSettings", true);
     tabShowMemory = ConfigGet<bool>("tabShowMemory", false);
+    autoDump = ConfigGet<bool>("autoDump", false);
     twoFingerScroll = ConfigGet<bool>("twoFingerScroll", true);
     touchPassthrough = ConfigGet<bool>("touchPassthrough", false);
     saferInspector = ConfigGet<bool>("saferInspector", false);
