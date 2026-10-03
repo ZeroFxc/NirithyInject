@@ -2116,15 +2116,20 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
             for (auto m : klass->getMethods())
                 methods.push_back({m, m->getParamsInfo()});
         }
-        // 方法节点可展开导致行高不固定，ImGuiListClipper 会误算可见范围造成覆盖；
-        // 单类方法数量通常有限，直接遍历渲染。
-        for (size_t i = 0; i < methods.size(); i++)
+        // 方法节点可展开导致行高不固定，用估算行高50px的clipper只渲染可见部分，
+        // 避免大方法数类展开时每帧渲染全部节点导致拖拽卡顿。
+        ImGuiListClipper clipper;
+        clipper.Begin((int)methods.size(), 50.0f);
+        while (clipper.Step())
         {
-            auto &[method, paramsInfo] = methods[i];
-            ImGui::PushID(method + i);
-            MethodViewer(klass, method, paramsInfo);
-            ImGui::Separator();
-            ImGui::PopID();
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
+            {
+                auto &[method, paramsInfo] = methods[i];
+                ImGui::PushID(method + i);
+                MethodViewer(klass, method, paramsInfo);
+                ImGui::Separator();
+                ImGui::PopID();
+            }
         }
     }
     ImGui::PopID();
