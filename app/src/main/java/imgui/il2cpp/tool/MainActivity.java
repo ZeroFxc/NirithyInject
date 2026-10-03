@@ -11,7 +11,6 @@ import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.Gravity;
 import android.view.Display;
-import android.graphics.Rect;
 import android.graphics.Point;
 import androidx.annotation.Keep;
 
@@ -45,11 +44,11 @@ public class MainActivity extends Activity {
                                                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
                                                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, 
                                                 PixelFormat.TRANSPARENT);
-        lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL | Gravity.CENTER_VERTICAL;
+        // 固定左上角对齐：Waydroid/WSA 下窗口尺寸与可用区域可能不一致，
+        // 居中对齐会把窗口整体推到屏幕外，导致叠加层位置错误
+        lp.gravity = Gravity.TOP | Gravity.START;
         lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
-
-        GlViewWrapper view = new GlViewWrapper(ctx);
 
         Display display = wm.getDefaultDisplay();
         Point size = new Point();
@@ -57,13 +56,14 @@ public class MainActivity extends Activity {
         int screenWidth = size.x;
         int screenHeight = size.y;
 
-
-        Rect rect = new Rect();
-        view.getWindowVisibleDisplayFrame(rect);
-        int statusBarHeight = rect.top;
+        // 密度修正：用 display 上下文创建 GL 视图，使窗口密度与 display 实际密度保持一致。
+        // Waydroid/WSA 上 Activity 资源密度可能与 display 不同，直接使用 ctx 会导致
+        // 窗口被合成器按错误密度缩放，叠加层随之偏移。
+        Context displayContext = ctx.createDisplayContext(display);
+        GlViewWrapper view = new GlViewWrapper(displayContext);
 
         lp.width = screenWidth;
-        lp.height = screenHeight - statusBarHeight;
+        lp.height = screenHeight;
 
         wm.addView(view, lp);
     }

@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <chrono>
 #include <thread>
+#include <cmath>
 #include "EGL/egl.h"
 
 #ifndef GL_FRAMEBUFFER_SRGB
@@ -33,6 +34,9 @@ void (*onInitAddr)();
 bool isInitialized = false;
 int glWidth = 0;
 int glHeight = 0;
+
+// 由 Main.cpp 定义的窗口重排标志：置位后菜单会按新的显示尺寸重新计算窗口位置
+extern bool resetWindow;
 
 int getGlWidth()
 {
@@ -288,6 +292,26 @@ void internalDrawMenu(int width, int height)
     applyFpsLimit();
 }
 
+// 上一次绘制使用的叠加层尺寸（仅由 swapbuffers_hook 维护，避免与 Unity 逻辑分辨率混淆）
+static int g_overlayWidth = 0;
+static int g_overlayHeight = 0;
+
+// 判断叠加层尺寸是否发生显著变化（相对上次绘制尺寸偏差超过 20%）
+// 功能：Waydroid / WSA 等环境下 EGL 缓冲尺寸会随窗口密度修正而变化，
+//       若仍沿用旧尺寸布局，菜单会停留在旧坐标上导致叠加层错位。
+// 参数：width/height 为本帧查询到的 EGL 表面尺寸
+// 返回值：true 表示尺寸变化显著，需要重新记录基准并重排窗口
+static bool isOverlaySizeChanged(int width, int height)
+{
+    if (g_overlayWidth <= 0 || g_overlayHeight <= 0)
+        return false;
+    const float dx = std::fabs(static_cast<float>(width) - static_cast<float>(g_overlayWidth)) /
+                     static_cast<float>(g_overlayWidth);
+    const float dy = std::fabs(static_cast<float>(height) - static_cast<float>(g_overlayHeight)) /
+                     static_cast<float>(g_overlayHeight);
+    return dx > 0.2f || dy > 0.2f;
+}
+
 EGLBoolean swapbuffers_hook(EGLDisplay dpy, EGLSurface surf)
 {
     EGLint w, h;
@@ -295,13 +319,26 @@ EGLBoolean swapbuffers_hook(EGLDisplay dpy, EGLSurface surf)
     eglQuerySurface(dpy, surf, EGL_HEIGHT, &h);
     glWidth = w;
     glHeight = h;
-    static bool initialScreenSet = false;
-    if (!initialScreenSet)
+
+    if (g_overlayWidth <= 0 || g_overlayHeight <= 0)
     {
-        initialScreenSize.x = w;
-        initialScreenSize.y = h;
-        initialScreenSet = true;
+        // 首帧只记录基准尺寸，不改动窗口布局
+        g_overlayWidth = w;
+        g_overlayHeight = h;
+        initialScreenSize.x = (float)w;
+        initialScreenSize.y = (float)h;
     }
+    else if (isOverlaySizeChanged(w, h))
+    {
+        // 显示尺寸显著变化（分辨率切换或密度修正后），更新基准并通知主线程重排窗口
+        g_overlayWidth = w;
+        g_overlayHeight = h;
+        initialScreenSize.x = (float)w;
+        initialScreenSize.y = (float)h;
+        LOGI("Overlay size changed to %dx%d, request window layout reset", w, h);
+        resetWindow = true;
+    }
+
     setupMenu();
     internalDrawMenu(w, h);
 
