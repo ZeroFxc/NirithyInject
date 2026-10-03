@@ -7,6 +7,7 @@
 #include "Tool/TextureCache.h"
 #include "Tool/Tool.h"
 #include "Tool/Util.h"
+#include "KittyMemory/KittyMemory.h"
 #include "imgui/imgui.h"
 #include <mutex>
 #include <thread>
@@ -1419,6 +1420,56 @@ void ClassesTab::PatcherView(Il2CppClass *klass, MethodInfo *method, const Metho
         //     }
         //     ImGui::EndPopup();
         // }
+        ImGui::Separator();
+        // 手动十六进制补丁：输入形如 "1F 20 03 D5" 的字节串，直接写入方法入口
+        ImGui::Text("%s", Lang::T("手动十六进制 :", "Manual hex :"));
+        static char hexBuffer[256]{0};
+        if (ImGui::Button(Lang::T("输入十六进制并应用", "Enter hex and apply")))
+        {
+            Keyboard::Open(
+                hexBuffer,
+                [method](const std::string &text)
+                {
+                    snprintf(hexBuffer, sizeof(hexBuffer), "%s", text.c_str());
+
+                    // 解析十六进制字节，忽略空格与逗号等分隔符
+                    std::vector<uint8_t> newBytes;
+                    for (size_t i = 0; i < text.size();)
+                    {
+                        if (std::isxdigit(static_cast<unsigned char>(text[i])))
+                        {
+                            if (i + 1 >= text.size() || !std::isxdigit(static_cast<unsigned char>(text[i + 1])))
+                            {
+                                LOGE("Invalid hex input: %s", text.c_str());
+                                return;
+                            }
+                            newBytes.push_back(static_cast<uint8_t>(std::stoul(text.substr(i, 2), nullptr, 16)));
+                            i += 2;
+                        }
+                        else
+                        {
+                            i++;
+                        }
+                    }
+                    if (newBytes.empty())
+                    {
+                        LOGE("Empty hex patch for %s", method->getName());
+                        return;
+                    }
+
+                    // 先备份原始字节以便 Restore
+                    if (oMap[method].bytes.empty())
+                    {
+                        oMap[method].bytes.assign(reinterpret_cast<uint8_t *>(method->methodPointer),
+                                                  reinterpret_cast<uint8_t *>(method->methodPointer) + newBytes.size());
+                    }
+                    auto protect = KittyMemory::ProtectAddr(method->methodPointer, newBytes.size(),
+                                                            PROT_READ | PROT_WRITE | PROT_EXEC);
+                    LOGINT(protect);
+                    memcpy(method->methodPointer, newBytes.data(), newBytes.size());
+                    oMap[method].text = text;
+                });
+        }
         ImGui::PopID();
         ImGui::EndPopup();
     }
