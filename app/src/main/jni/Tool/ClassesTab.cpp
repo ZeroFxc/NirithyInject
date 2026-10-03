@@ -2004,7 +2004,10 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
     ImGui::PushID(klass);
     if (ImGui::Button(Lang::T("检查对象", "Inspect Objects")))
     {
-        ImGui::OpenPopup("DumpPopup");
+        auto &tab = Tool::OpenNewTab();
+        tab.inspectClass = klass;
+        tab.title = Lang::T("检查对象", "Inspect Objects");
+        tab.setOpenedTab = true;
     }
     {
         ImGui::SameLine();
@@ -2350,6 +2353,17 @@ void ClassesTab::Draw(int index, bool closeable)
             ImGui::EndPopup();
         }
         ImGui::Separator();
+        if (inspectClass)
+        {
+            // 对象检查模式：显示该类的已收集对象选择器，选中后在对象详情 tab 查看字段
+            ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1.0f), "%s: %s",
+                                Lang::T("检查对象", "Inspect Objects"), inspectClass->getFullName().c_str());
+            ImGui::Separator();
+            ImGuiObjectSelector(ImGui::GetID("InspectObjectSelector"), inspectClass, "Inspect",
+                                [this](Il2CppObject *object) { setJsonObject(object); });
+        }
+        else
+        {
         // DockSpace：类列表和类详情窗口停靠在此，支持拖拽分割/双列/浮动
         ImGuiID dockspaceId = ImGui::GetID("ClassesDockSpace");
         ImGui::DockSpace(dockspaceId, ImVec2(0, 0), ImGuiDockNodeFlags_PassthruCentralNode);
@@ -2445,6 +2459,7 @@ void ClassesTab::Draw(int index, bool closeable)
                     ImGui::TextDisabled("%s", Lang::T("从左侧选择一个类", "Select a class on the left"));
             }
             ImGui::End();
+        }
         }
         ImGui::EndTabItem();
         // 方法详情卡片为独立浮动窗口，仅由拥有它的实例绘制（避免选项卡销毁后指针悬空）
