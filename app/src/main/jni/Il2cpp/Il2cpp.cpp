@@ -728,30 +728,52 @@ namespace Il2cpp
     void Init()
     {
         g_ready = false;
-        auto handle = openIl2cppHandle();
-        if (!handle)
+
+        // libil2cpp.so 可能在进程启动早期尚未完成加载/重定位，
+        // 因此最多尝试 3 次，每次间隔 1 秒，避免过早失败导致检查器被永久禁用。
+        constexpr int kMaxAttempts = 3;
+        bool opened = false;
+        for (int attempt = 1; attempt <= kMaxAttempts; ++attempt)
+        {
+            auto handle = openIl2cppHandle();
+            if (!handle)
+            {
+                LOGI("openIl2cppHandle failed (attempt %d/%d)", attempt, kMaxAttempts);
+                if (attempt < kMaxAttempts)
+                    sleep(1);
+                continue;
+            }
+            opened = true;
+            il2cpp_api_init(handle);
+            xdl_close(handle);
+
+            // 核心符号校验：仅当 domain/assembly 这两个基础 API 缺失时才算失败，
+            // 其余非核心符号（见 il2cpp-api-functions.h 中的 DO_API_OPTIONAL）缺失不影响可用性，
+            // 以避免因某个版本差异符号缺失就禁用整个检查器。
+            if (il2cpp_domain_get_assemblies && il2cpp_domain_get)
+            {
+                g_ready = true;
+                g_statusMessage = "OK";
+                return;
+            }
+            LOGI("IL2CPP core symbols unresolved (attempt %d/%d)", attempt, kMaxAttempts);
+            if (attempt < kMaxAttempts)
+                sleep(1);
+        }
+
+        if (!opened)
         {
             g_statusMessage =
                 "未找到 libil2cpp.so（游戏可能不是 IL2CPP，或 so 被混淆/加密/重命名）。\n"
                 "libil2cpp.so not found — game may not use IL2CPP, or the library is obfuscated/encrypted/renamed.";
-            LOGE("%s", g_statusMessage.c_str());
-            return;
         }
-        il2cpp_api_init(handle);
-        xdl_close(handle);
-        // 核心符号校验：仅当 domain/assembly 这两个基础 API 缺失时才算初始化失败，
-        // 其余非核心符号（见 il2cpp-api-functions.h 中的 DO_API_OPTIONAL）缺失不影响可用性，
-        // 以避免因某个版本差异符号缺失就禁用整个检查器。
-        if (!il2cpp_domain_get_assemblies || !il2cpp_domain_get)
+        else
         {
             g_statusMessage =
                 "已加载 native 库但无法解析 IL2CPP API（符号被剥离或加密）。\n"
                 "Native library loaded but IL2CPP API symbols could not be resolved (stripped or encrypted).";
-            LOGE("%s", g_statusMessage.c_str());
-            return;
         }
-        g_ready = true;
-        g_statusMessage = "OK";
+        LOGE("%s", g_statusMessage.c_str());
     }
 
     bool IsReady()
