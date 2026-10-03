@@ -122,8 +122,8 @@ struct ClassesTab
         Il2CppObject *thiz = nullptr;
         bool open = false;
     };
-    static MethodCard methodCard;
-    static void DrawMethodDetailCard();
+    static std::vector<MethodCard> methodCards;
+    static void DrawMethodDetailCard(MethodCard &card);
 
     static std::unordered_map<Il2CppClass *, bool> states;
     void ClassViewer(Il2CppClass *klass);

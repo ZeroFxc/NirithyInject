@@ -24,7 +24,7 @@ extern bool sideSplit;
 
 constexpr int MAX_CLASSES = 500;
 
-ClassesTab::MethodCard ClassesTab::methodCard{};
+std::vector<ClassesTab::MethodCard> ClassesTab::methodCards{};
 
 
 int maxLine{5};
@@ -1842,6 +1842,21 @@ bool ClassesTab::MethodViewer(Il2CppClass *klass, MethodInfo *method, const Meth
         ImGui::PopStyleColor(pushedColor);
     if (open)
     {
+        if (ImGui::Button(Lang::T("弹出为窗口", "Pop out")))
+        {
+            bool exists = false;
+            for (auto &c : methodCards)
+            {
+                if (c.method == method)
+                {
+                    c.open = true;
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists)
+                methodCards.push_back({this, klass, method, paramsInfo, thiz, true});
+        }
         if (ImGui::BeginTabBar("##methodInlineTabs"))
         {
             if (ImGui::BeginTabItem(Lang::tr("tab.info")))
@@ -1884,24 +1899,24 @@ bool ClassesTab::MethodViewer(Il2CppClass *klass, MethodInfo *method, const Meth
     return open;
 }
 
-void ClassesTab::DrawMethodDetailCard()
+void ClassesTab::DrawMethodDetailCard(MethodCard &card)
 {
-    if (!methodCard.open || !methodCard.method || !methodCard.klass)
+    if (!card.open || !card.method || !card.klass)
         return;
 
-    auto *method = methodCard.method;
-    auto *klass = methodCard.klass;
-    auto &paramsInfo = methodCard.params;
-    auto *thiz = methodCard.thiz;
+    auto *method = card.method;
+    auto *klass = card.klass;
+    auto &paramsInfo = card.params;
+    auto *thiz = card.thiz;
 
     ImGuiIO &io = ImGui::GetIO();
     ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x * 0.86f, io.DisplaySize.y * 0.52f), ImGuiCond_Appearing);
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.07f, io.DisplaySize.y * 0.24f), ImGuiCond_Appearing);
 
     char title[384]{0};
-    snprintf(title, sizeof(title), "%s  %s::%s###MethodDetailCard", Lang::tr("method.card"),
-             klass->getName(), method->getName());
-    if (!ImGui::Begin(title, &methodCard.open, ImGuiWindowFlags_NoCollapse))
+    snprintf(title, sizeof(title), "%s  %s::%s###MethodCard_%p", Lang::tr("method.card"),
+             klass->getName(), method->getName(), (void *)method);
+    if (!ImGui::Begin(title, &card.open, ImGuiWindowFlags_NoCollapse))
     {
         ImGui::End();
         return;
@@ -1928,17 +1943,17 @@ void ClassesTab::DrawMethodDetailCard()
         }
         if (ImGui::BeginTabItem(Lang::tr("tab.call")))
         {
-            methodCard.owner->CallerView(klass, method, paramsInfo, thiz);
+            card.owner->CallerView(klass, method, paramsInfo, thiz);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem(Lang::tr("tab.patch")))
         {
-            methodCard.owner->PatcherView(klass, method, paramsInfo, thiz);
+            card.owner->PatcherView(klass, method, paramsInfo, thiz);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem(Lang::tr("tab.trace")))
         {
-            methodCard.owner->HookerView(klass, method, paramsInfo, thiz);
+            card.owner->HookerView(klass, method, paramsInfo, thiz);
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
@@ -2392,8 +2407,15 @@ void ClassesTab::Draw(int index, bool closeable)
         }
         ImGui::EndTabItem();
         // 方法详情卡片为独立浮动窗口，仅由拥有它的实例绘制（避免选项卡销毁后指针悬空）
-        if (methodCard.owner == this)
-            DrawMethodDetailCard();
+        for (auto &card : methodCards)
+        {
+            if (card.owner == this)
+                DrawMethodDetailCard(card);
+        }
+        // 清理已关闭的卡片
+        methodCards.erase(std::remove_if(methodCards.begin(), methodCards.end(),
+                                         [](const MethodCard &c) { return !c.open; }),
+                          methodCards.end());
     }
 }
 void ClassesTab::DrawTabMap()
