@@ -26,6 +26,19 @@ int maxLine{5};
 std::unordered_map<void *, HookerData> hookerMap;
 std::mutex hookerMtx;
 
+// 为值类型创建一个零初始化的装箱实例（用于没有构造函数的结构体）
+// klass: 目标值类型类；返回装箱后的对象指针，类尺寸无效时返回 nullptr
+static Il2CppObject *CreateZeroInitValueType(Il2CppClass *klass)
+{
+    if (!klass)
+        return nullptr;
+    size_t size = klass->getSize();
+    if (size == 0)
+        return nullptr;
+    std::vector<uint8_t> zero(size, 0);
+    return Il2cpp::GetBoxedValue(klass, zero.data());
+}
+
 #ifndef USE_FRIDA
 void hookerHandler(void *address, DobbyRegisterContext *ctx)
 {
@@ -593,17 +606,36 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
         }
         if (ImGui::BeginPopup("ThisObjectSelector"))
         {
-            ImGuiObjectSelector(
-                ImGui::GetID("ThisObjectSelector"), klass, "this",
-                [&thisParam](Il2CppObject *object)
+            if (Il2cpp::GetClassIsValueType(klass))
+            {
+                // 结构体实例方法：值类型无法作为 GC 对象收集，提供零初始化实例创建
+                if (ImGui::Button(Lang::T("创建零初始化实例", "Create Zero-Init Instance")))
                 {
-                    char objStr[16]{0};
-                    sprintf(objStr, "%p", object);
-                    thisParam.value = objStr;
-                    thisParam.object = object;
+                    auto boxed = CreateZeroInitValueType(klass);
+                    if (boxed)
+                    {
+                        char objStr[16]{0};
+                        sprintf(objStr, "%p", boxed);
+                        thisParam.value = objStr;
+                        thisParam.object = boxed;
+                    }
                     ImGui::CloseCurrentPopup();
-                },
-                strcmp(method->getName(), ".ctor") == 0);
+                }
+            }
+            else
+            {
+                ImGuiObjectSelector(
+                    ImGui::GetID("ThisObjectSelector"), klass, "this",
+                    [&thisParam](Il2CppObject *object)
+                    {
+                        char objStr[16]{0};
+                        sprintf(objStr, "%p", object);
+                        thisParam.value = objStr;
+                        thisParam.object = object;
+                        ImGui::CloseCurrentPopup();
+                    },
+                    strcmp(method->getName(), ".ctor") == 0);
+            }
             ImGui::EndPopup();
         }
     }
@@ -665,15 +697,34 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
         }
         if (ImGui::BeginPopup("ParamObjectSelector"))
         {
-            ImGuiObjectSelector(ImGui::GetID("ParamObjectSelector"), type->getClass(), name,
-                                [&param](Il2CppObject *object)
-                                {
-                                    char objStr[16]{0};
-                                    sprintf(objStr, "%p", object);
-                                    param.value = objStr;
-                                    param.object = object;
-                                    ImGui::CloseCurrentPopup();
-                                });
+            if (type->isValueType() && !type->isEnum())
+            {
+                // 值类型（结构体）不能作为 GC 对象收集，这里提供零初始化实例创建
+                if (ImGui::Button(Lang::T("创建零初始化实例", "Create Zero-Init Instance")))
+                {
+                    auto boxed = CreateZeroInitValueType(type->getClass());
+                    if (boxed)
+                    {
+                        char objStr[16]{0};
+                        sprintf(objStr, "%p", boxed);
+                        param.value = objStr;
+                        param.object = boxed;
+                    }
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            else
+            {
+                ImGuiObjectSelector(ImGui::GetID("ParamObjectSelector"), type->getClass(), name,
+                                    [&param](Il2CppObject *object)
+                                    {
+                                        char objStr[16]{0};
+                                        sprintf(objStr, "%p", object);
+                                        param.value = objStr;
+                                        param.object = object;
+                                        ImGui::CloseCurrentPopup();
+                                    });
+            }
             ImGui::EndPopup();
         }
         ImGui::PopID();
