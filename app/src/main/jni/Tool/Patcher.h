@@ -31,6 +31,11 @@ class Patcher
 
     asmjit::Error movPtr(void *value);
 
+    // 方法重定向：将当前方法入口改写为跳转到 destination 的指令
+    // 参数：destination 目标地址（需 4 字节对齐）
+    // 返回：asmjit 错误码，kErrorOk 表示成功
+    asmjit::Error redirect(void *destination);
+
     std::vector<uint8_t> patch();
 
   private:

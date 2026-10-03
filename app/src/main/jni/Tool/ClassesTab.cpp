@@ -1523,6 +1523,60 @@ void ClassesTab::PatcherView(Il2CppClass *klass, MethodInfo *method, const Metho
     //     auto src = method->methodPointer;
     //     memcpy((void *)src, (void *)rawBytes, sizeof(method->methodPointer));
     // }
+
+    ImGui::Separator();
+    // 方法重定向：输入目标地址（支持 0x 前缀），将方法入口改写为跳转指令
+    ImGui::Text("%s", Lang::T("重定向跳转 :", "Redirect to :"));
+    static char redirectBuffer[64]{0};
+    if (ImGui::Button(Lang::T("输入目标地址并应用", "Enter target and apply")))
+    {
+        Keyboard::Open(
+            redirectBuffer,
+            [method](const std::string &text)
+            {
+                snprintf(redirectBuffer, sizeof(redirectBuffer), "%s", text.c_str());
+                if (text.empty())
+                    return;
+
+                uintptr_t address = 0;
+                try
+                {
+                    address = std::stoull(text, nullptr, 0);
+                }
+                catch (...)
+                {
+                    LOGE("Invalid redirect address: %s", text.c_str());
+                    return;
+                }
+                if (!address)
+                {
+                    LOGE("Invalid redirect address: %s", text.c_str());
+                    return;
+                }
+                if (!oMap[method].bytes.empty())
+                {
+                    LOGE("oMap is not empty for %s", method->getName());
+                    return;
+                }
+
+                Patcher p{method};
+                if (p.redirect(reinterpret_cast<void *>(address)) != asmjit::kErrorOk)
+                {
+                    LOGE("Failed to assemble redirect for %s", method->getName());
+                    return;
+                }
+                oMap[method].bytes = p.patch();
+                oMap[method].text = text;
+            });
+    }
+    if (!o.text.empty())
+    {
+        ImGui::SameLine();
+        ImGui::Text("-> %s", o.text.c_str());
+        ImGui::SameLine();
+        if (ImGui::Button(Lang::T("复制已修补字节", "Copy patched bytes")))
+            copyPatchedBytes();
+    }
 }
 
 void ClassesTab::HookerView(Il2CppClass *klass, MethodInfo *method, const MethodParamList &paramsInfo,
