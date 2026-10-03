@@ -1346,7 +1346,8 @@ void ClassesTab::PatcherView(Il2CppClass *klass, MethodInfo *method, const Metho
 
                             using namespace asmjit;
                             Patcher p{method};
-                            p.movInt16(value);
+                            // 枚举底层类型为 int32，使用 32 位写入以保留负值与大值
+                            p.movInt32(value);
                             p.ret();
 
                             if (oMap[method].bytes.empty())
