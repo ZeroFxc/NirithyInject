@@ -37,6 +37,9 @@ void logcatJson(nlohmann::ordered_json &json)
 template <typename T>
 void ConfigSet(const char *key, T value);
 
+template <typename T>
+T ConfigGet(const char *key, T defaultValue);
+
 #define targetLibName OBFUSCATE("libil2cpp.so")
 
 Il2CppImage *g_Image = nullptr;
@@ -77,6 +80,11 @@ bool saferInspector = false;
 // Side Split：类窗口左右分栏布局
 bool sideSplit = false;
 
+// 窗口位置记忆（浮动/贴边控制的持久化）
+ImVec2 g_lastWindowPos = ImVec2(0, 0);
+ImVec2 g_lastWindowSize = ImVec2(0, 0);
+bool g_windowPosLoaded = false;
+
 constexpr std::array<const char *, 7> possibleScale = {
     "Smallest", "Smaller", "Small", "Default", "Large", "Larger", "Largest",
 };
@@ -89,8 +97,15 @@ static std::atomic<bool> g_hackStarted{false};
 
 void draw_thread()
 {
-    static ImVec2 lastSize = ImVec2(0, 0);
-    static ImVec2 lastPos = ImVec2(0, 0);
+    // 启动时从配置恢复窗口位置/尺寸（仅一次）
+    if (!g_windowPosLoaded)
+    {
+        g_windowPosLoaded = true;
+        g_lastWindowPos.x = (float)ConfigGet<double>("winPosX", 20.0);
+        g_lastWindowPos.y = (float)ConfigGet<double>("winPosY", 80.0);
+        g_lastWindowSize.x = (float)ConfigGet<double>("winSizeX", 0.0);
+        g_lastWindowSize.y = (float)ConfigGet<double>("winSizeY", 0.0);
+    }
 
     if (!Il2cpp::IsReady())
     {
@@ -120,14 +135,14 @@ void draw_thread()
         }
         else
         {
-            ImGui::SetNextWindowPos(lastPos);
-            ImGui::SetNextWindowSize(lastSize);
+            ImGui::SetNextWindowPos(g_lastWindowPos);
+            ImGui::SetNextWindowSize(g_lastWindowSize);
         }
     }
     if (centerWindow || snapWindow)
     {
         auto screenSize = ImGui::GetIO().DisplaySize;
-        ImVec2 winSize = lastSize;
+        ImVec2 winSize = g_lastWindowSize;
         if (winSize.x <= 0.f || winSize.y <= 0.f)
         {
             winSize = ImVec2(screenSize.x * 0.5f, screenSize.y * 0.5f);
@@ -229,8 +244,12 @@ void draw_thread()
                 {
                     if (fullScreen)
                     {
-                        lastSize = ImGui::GetWindowSize();
-                        lastPos = ImGui::GetWindowPos();
+                        g_lastWindowSize = ImGui::GetWindowSize();
+                        g_lastWindowPos = ImGui::GetWindowPos();
+                        ConfigSet("winPosX", (double)g_lastWindowPos.x);
+                        ConfigSet("winPosY", (double)g_lastWindowPos.y);
+                        ConfigSet("winSizeX", (double)g_lastWindowSize.x);
+                        ConfigSet("winSizeY", (double)g_lastWindowSize.y);
                     }
                     resetWindow = true;
                 }
@@ -560,6 +579,18 @@ void draw_thread()
     }
 #endif
     ImGui::End();
+
+    // 周期保存窗口位置/尺寸（全屏或缩放时不覆盖已保存值）
+    static int saveCounter = 0;
+    if (!fullScreen && ++saveCounter % 120 == 0)
+    {
+        g_lastWindowPos = ImGui::GetWindowPos();
+        g_lastWindowSize = ImGui::GetWindowSize();
+        ConfigSet("winPosX", (double)g_lastWindowPos.x);
+        ConfigSet("winPosY", (double)g_lastWindowPos.y);
+        ConfigSet("winSizeX", (double)g_lastWindowSize.x);
+        ConfigSet("winSizeY", (double)g_lastWindowSize.y);
+    }
 }
 
 static nlohmann::ordered_json gConf;
