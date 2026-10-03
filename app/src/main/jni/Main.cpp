@@ -50,6 +50,7 @@ bool collapsed = false;
 bool fullScreen = false;
 bool resetWindow = false;
 int selectedScale = 3;
+int selectedTheme = 0;
 
 bool doChangeScale = false;
 
@@ -286,6 +287,34 @@ void draw_thread()
             {
                 ConfigSet("lang", Lang::current);
             }
+            ImGui::Separator();
+            ImGui::Text("%s", Lang::T("主题", "Theme"));
+            static const std::array<const char *, 3> possibleThemes = {
+                "暗色", "亮色", "自定义",
+            };
+            static const std::array<const char *, 3> possibleThemesEn = {
+                "Dark", "Light", "Custom",
+            };
+            auto themeLabel = Lang::current == 0 ? possibleThemes[selectedTheme] : possibleThemesEn[selectedTheme];
+            if (ImGui::BeginCombo(Lang::T("主题##Global", "Theme##Global"), themeLabel))
+            {
+                for (int i = 0; i < possibleThemes.size(); i++)
+                {
+                    bool selected = i == selectedTheme;
+                    auto label = Lang::current == 0 ? possibleThemes[i] : possibleThemesEn[i];
+                    if (ImGui::Selectable(label, selected))
+                    {
+                        selectedTheme = i;
+                        ConfigSet("theme", selectedTheme);
+                        doChangeScale = true;
+                    }
+                    if (selected)
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
             ImGui::Checkbox(Lang::T("键盘收不到输入时启用备用方案", "Enable if keyboard input is not being received"),
                             &Keyboard::check);
             if (ImGui::Button(Lang::T("重置图片缓存", "Reset image cache")))
@@ -361,7 +390,10 @@ void draw_thread()
         static auto font = ImGui::GetFont();
 
         font->Scale = scaleFactors[selectedScale];
-        auto style = initialStyle;
+        // 从初始风格恢复尺寸，应用主题颜色，再统一缩放（避免反复缩放累积）
+        ImGui::GetStyle() = initialStyle;
+        menuStyle(selectedTheme);
+        auto style = ImGui::GetStyle();
         style.ScaleAllSizes(font->Scale);
         ImGui::GetStyle() = style;
         doCalculate = true;
@@ -449,6 +481,7 @@ void on_init()
         ConfigInit();
         Lang::current = ConfigGet<int>("lang", 0);
         selectedScale = ConfigGet<int>("selectedScale", selectedScale);
+        selectedTheme = ConfigGet<int>("theme", 0);
         doChangeScale = true;
         return;
     }
@@ -466,11 +499,17 @@ void on_init()
     initialStyle = ImGui::GetStyle();
     ConfigInit();
     selectedScale = ConfigGet<int>("selectedScale", selectedScale);
+    selectedTheme = ConfigGet<int>("theme", 0);
     Lang::current = ConfigGet<int>("lang", 0);
     if (selectedScale < 0 || selectedScale >= scaleFactors.size())
     {
         selectedScale = 3;
         ConfigSet("selectedScale", selectedScale);
+    }
+    if (selectedTheme < 0 || selectedTheme > 2)
+    {
+        selectedTheme = 0;
+        ConfigSet("theme", selectedTheme);
     }
     doChangeScale = true;
 

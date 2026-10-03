@@ -55,6 +55,7 @@ HOOKINPUT(void, Input, void *thiz, void *ex_ab, void *ex_ac)
 
 ImVec2 initialScreenSize;
 bool needClear = true;
+
 void *initModMenu(void *menu_addr, void *on_init_addr, bool isJni)
 {
     menuAddress = (void (*)())menu_addr;
@@ -88,6 +89,98 @@ void *initModMenu(void *menu_addr, void *on_init_addr, bool isJni)
     return nullptr;
 }
 
+void menuStyle(int theme)
+{
+    ImGuiStyle &style = ImGui::GetStyle();
+    switch (theme)
+    {
+    case 1: // Light
+        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.94f, 0.94f, 0.95f, 0.97f);
+        style.Colors[ImGuiCol_ChildBg] = ImVec4(0.90f, 0.90f, 0.92f, 0.95f);
+        style.Colors[ImGuiCol_PopupBg] = ImVec4(0.96f, 0.96f, 0.97f, 0.98f);
+        style.Colors[ImGuiCol_FrameBg] = ImVec4(0.85f, 0.85f, 0.88f, 0.95f);
+        style.Colors[ImGuiCol_Text] = ImVec4(0.10f, 0.10f, 0.12f, 1.00f);
+        style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.45f, 0.45f, 0.50f, 1.00f);
+        style.Colors[ImGuiCol_Button] = ImVec4(0.80f, 0.80f, 0.85f, 0.60f);
+        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.70f, 0.70f, 0.80f, 1.00f);
+        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.60f, 0.60f, 0.75f, 1.00f);
+        style.Colors[ImGuiCol_Header] = ImVec4(0.80f, 0.80f, 0.88f, 0.80f);
+        style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.70f, 0.75f, 0.90f, 1.00f);
+        style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.65f, 0.70f, 0.85f, 1.00f);
+        style.Colors[ImGuiCol_Separator] = ImVec4(0.60f, 0.60f, 0.65f, 0.80f);
+        style.Colors[ImGuiCol_Border] = ImVec4(0.50f, 0.50f, 0.55f, 0.80f);
+        style.Colors[ImGuiCol_TitleBg] = ImVec4(0.85f, 0.85f, 0.90f, 1.00f);
+        style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.80f, 0.80f, 0.88f, 1.00f);
+        style.Colors[ImGuiCol_Tab] = ImVec4(0.85f, 0.85f, 0.90f, 0.90f);
+        style.Colors[ImGuiCol_TabHovered] = ImVec4(0.75f, 0.80f, 0.95f, 1.00f);
+        style.Colors[ImGuiCol_TabActive] = ImVec4(0.90f, 0.90f, 0.95f, 1.00f);
+        style.Colors[ImGuiCol_CheckMark] = ImVec4(0.20f, 0.45f, 0.90f, 1.00f);
+        style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.30f, 0.50f, 0.90f, 1.00f);
+        style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(0.20f, 0.40f, 0.80f, 1.00f);
+        style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.88f, 0.88f, 0.92f, 0.90f);
+        style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.70f, 0.70f, 0.78f, 0.90f);
+        style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.60f, 0.60f, 0.70f, 1.00f);
+        style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.50f, 0.50f, 0.60f, 1.00f);
+        break;
+    case 2: // Custom (蓝绿暗色)
+        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.05f, 0.08f, 0.10f, 0.96f);
+        style.Colors[ImGuiCol_ChildBg] = ImVec4(0.04f, 0.07f, 0.09f, 0.92f);
+        style.Colors[ImGuiCol_PopupBg] = ImVec4(0.06f, 0.10f, 0.12f, 0.97f);
+        style.Colors[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.16f, 0.20f, 0.92f);
+        style.Colors[ImGuiCol_Text] = ImVec4(0.85f, 0.95f, 1.00f, 1.00f);
+        style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+        style.Colors[ImGuiCol_Button] = ImVec4(0.10f, 0.35f, 0.45f, 0.70f);
+        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.15f, 0.50f, 0.65f, 1.00f);
+        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.20f, 0.60f, 0.80f, 1.00f);
+        style.Colors[ImGuiCol_Header] = ImVec4(0.10f, 0.30f, 0.40f, 0.80f);
+        style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.15f, 0.45f, 0.60f, 1.00f);
+        style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.20f, 0.55f, 0.70f, 1.00f);
+        style.Colors[ImGuiCol_Separator] = ImVec4(0.20f, 0.40f, 0.50f, 0.80f);
+        style.Colors[ImGuiCol_Border] = ImVec4(0.20f, 0.45f, 0.55f, 0.80f);
+        style.Colors[ImGuiCol_TitleBg] = ImVec4(0.08f, 0.20f, 0.25f, 1.00f);
+        style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.35f, 0.45f, 1.00f);
+        style.Colors[ImGuiCol_Tab] = ImVec4(0.08f, 0.22f, 0.28f, 0.90f);
+        style.Colors[ImGuiCol_TabHovered] = ImVec4(0.15f, 0.45f, 0.60f, 1.00f);
+        style.Colors[ImGuiCol_TabActive] = ImVec4(0.12f, 0.40f, 0.55f, 1.00f);
+        style.Colors[ImGuiCol_CheckMark] = ImVec4(0.20f, 0.90f, 0.80f, 1.00f);
+        style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.20f, 0.70f, 0.80f, 1.00f);
+        style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(0.30f, 0.90f, 1.00f, 1.00f);
+        style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.08f, 0.15f, 0.18f, 0.90f);
+        style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.20f, 0.45f, 0.55f, 0.90f);
+        style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.25f, 0.60f, 0.70f, 1.00f);
+        style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.30f, 0.75f, 0.90f, 1.00f);
+        break;
+    default: // Dark (默认)
+        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.07f, 0.07f, 0.08f, 0.96f);
+        style.Colors[ImGuiCol_ChildBg] = ImVec4(0.06f, 0.06f, 0.07f, 0.90f);
+        style.Colors[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.08f, 0.09f, 0.96f);
+        style.Colors[ImGuiCol_FrameBg] = ImVec4(0.14f, 0.14f, 0.16f, 0.90f);
+        style.Colors[ImGuiCol_Text] = ImVec4(0.90f, 0.90f, 0.92f, 1.00f);
+        style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.55f, 1.00f);
+        style.Colors[ImGuiCol_Button] = ImVec4(0.25f, 0.25f, 0.30f, 0.70f);
+        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.35f, 0.35f, 0.45f, 1.00f);
+        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.45f, 0.45f, 0.55f, 1.00f);
+        style.Colors[ImGuiCol_Header] = ImVec4(0.20f, 0.20f, 0.25f, 0.80f);
+        style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.30f, 0.30f, 0.40f, 1.00f);
+        style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.40f, 0.40f, 0.50f, 1.00f);
+        style.Colors[ImGuiCol_Separator] = ImVec4(0.30f, 0.30f, 0.35f, 0.80f);
+        style.Colors[ImGuiCol_Border] = ImVec4(0.25f, 0.25f, 0.30f, 0.80f);
+        style.Colors[ImGuiCol_TitleBg] = ImVec4(0.10f, 0.10f, 0.12f, 1.00f);
+        style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.15f, 0.15f, 0.18f, 1.00f);
+        style.Colors[ImGuiCol_Tab] = ImVec4(0.12f, 0.12f, 0.15f, 0.90f);
+        style.Colors[ImGuiCol_TabHovered] = ImVec4(0.25f, 0.25f, 0.35f, 1.00f);
+        style.Colors[ImGuiCol_TabActive] = ImVec4(0.18f, 0.18f, 0.22f, 1.00f);
+        style.Colors[ImGuiCol_CheckMark] = ImVec4(0.30f, 0.80f, 0.40f, 1.00f);
+        style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.30f, 0.60f, 0.40f, 1.00f);
+        style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(0.40f, 0.80f, 0.50f, 1.00f);
+        style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.12f, 0.12f, 0.14f, 0.90f);
+        style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.30f, 0.30f, 0.35f, 0.90f);
+        style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.40f, 0.40f, 0.50f, 1.00f);
+        style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.50f, 0.50f, 0.60f, 1.00f);
+        break;
+    }
+}
+
 void setupMenu()
 {
     if (isInitialized)
@@ -110,13 +203,9 @@ void setupMenu()
     io.Fonts->AddFontFromMemoryTTF(Roboto_Regular, sizeof(Roboto_Regular), 40.0f);
 
     ImGui::GetStyle().ScaleAllSizes(2);
-    ImGuiStyle &style = ImGui::GetStyle();
-    style.ScrollbarSize *= 2.5f;
-    // Opaque-enough dark window so HDR / sRGB games don't wash the menu to white.
-    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.07f, 0.07f, 0.08f, 0.96f);
-    style.Colors[ImGuiCol_ChildBg] = ImVec4(0.06f, 0.06f, 0.07f, 0.90f);
-    style.Colors[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.08f, 0.09f, 0.96f);
-    style.Colors[ImGuiCol_FrameBg] = ImVec4(0.14f, 0.14f, 0.16f, 0.90f);
+    ImGui::GetStyle().ScrollbarSize *= 2.5f;
+    // 默认暗色主题；用户选择通过 on_init 的 ConfigGet("theme") 在 doChangeScale 中应用
+    menuStyle(0);
 
     if (onInitAddr)
         onInitAddr();

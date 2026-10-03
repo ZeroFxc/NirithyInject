@@ -1,6 +1,7 @@
 #pragma once
 #include <EGL/egl.h>
-void menuStyle();
+// 0 = 暗色 (默认), 1 = 亮色, 2 = 自定义
+void menuStyle(int theme = 0);
 
 // HOOKINPUT(void, Input, void *thiz, void *ex_ab, void *ex_ac)
 // {
