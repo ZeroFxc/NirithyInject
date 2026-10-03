@@ -83,6 +83,12 @@ namespace Lang
         {"tool.clearSelection", "清空", "Clear", "清空"},
         {"tool.selected", "已选:", "Selected:", "已選:"},
         {"tool.dumpAllHint", "未选择程序集，将转储全部", "No assembly selected, dumping all", "未選擇組件，將轉儲全部"},
+        {"tool.dumping", "正在转储", "Dumping", "正在轉儲"},
+        {"tool.dumpBtn", "转储", "DUMP", "轉儲"},
+        {"tool.dumpInProgress", "转储进行中或已完成！", "Dump in progress or finished!", "轉儲進行中或已完成！"},
+        {"tool.dumpDone", "完成", "Done", "完成"},
+        {"tool.copyPath", "复制路径", "Copy path", "複製路徑"},
+        {"tool.outputPath", "输出文件路径", "Output file path", "輸出檔案路徑"},
         // --- 内存选项卡 ---
         {"memory.hint", "输入地址后读取内存（最多 256 字节）", "Enter an address to read memory (up to 256 bytes)", "輸入位址後讀取記憶體（最多 256 位元組）"},
         {"memory.enterAddress", "输入地址", "Enter address", "輸入位址"},

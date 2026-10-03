@@ -282,7 +282,7 @@ namespace Tool
 
         if (!currentDump.empty())
         {
-            ImGui::Text("Dumping %s", currentDump.c_str());
+            ImGui::Text("%s %s", Lang::tr("tool.dumping"), currentDump.c_str());
         }
 
         // 自动转储开关：开启后进入该页面即自动开始一次转储
@@ -303,7 +303,9 @@ namespace Tool
         ImGui::SameLine();
         ImGui::TextDisabled("%s %zu", Lang::T("已选:", "Selected:"), selectedAssemblies.size());
 
-        ImGui::BeginChild("##AssemblyList", ImVec2(0, 180), true);
+        float listHeight = ImGui::GetContentRegionAvail().y * 0.4f;
+        if (listHeight < 120) listHeight = 120;
+        ImGui::BeginChild("##AssemblyList", ImVec2(0, listHeight), true);
         for (auto image : g_Images)
         {
             const char *name = image->getName();
@@ -346,11 +348,11 @@ namespace Tool
             startDump();
         }
 
-        if (ImGui::Button("DUMP"))
+        if (ImGui::Button(Lang::tr("tool.dumpBtn")))
         {
             if (dumping)
             {
-                currentDump = "are in progress or finished!";
+                currentDump = Lang::tr("tool.dumpInProgress");
             }
             else
             {
@@ -359,17 +361,20 @@ namespace Tool
         }
         if (dumping && dumpFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {
-            currentDump = "Done";
+            currentDump = Lang::tr("tool.dumpDone");
             dumping = false;
             dumped = true;
         }
         if (dumped)
         {
             ImGui::SameLine();
-            if (ImGui::Button("Copy path"))
+            if (ImGui::Button(Lang::tr("tool.copyPath")))
             {
                 Keyboard::Open(outFile, nullptr);
             }
+            ImGui::Separator();
+            ImGui::Text("%s", Lang::tr("tool.outputPath"));
+            ImGui::InputText("##dumpOutPath", (char *)outFile, sizeof(outFile), ImGuiInputTextFlags_ReadOnly);
         }
     }
 
