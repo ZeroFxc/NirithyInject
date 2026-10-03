@@ -2287,43 +2287,48 @@ void ClassesTab::Draw(int index, bool closeable)
             float leftWidth = sideSplit ? avail.x * 0.35f : 0.f;
             ImGui::BeginChild("Child", sideSplit ? ImVec2(leftWidth, 0) : ImVec2(0, 0), false,
                               ImGuiWindowFlags_HorizontalScrollbar);
-            for (int i = 0; i < filteredClasses.size(); i++)
+            ImGuiListClipper clipper;
+            clipper.Begin((int)filteredClasses.size());
+            while (clipper.Step())
             {
-                auto klass = filteredClasses[i];
+                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
+                {
+                    auto klass = filteredClasses[i];
 
-                bool isValueType = Il2cpp::GetClassType(klass)->isValueType();
-                int pushedColor = 0;
-                if (isValueType)
-                {
-                    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(222, 222, 222, 255));
-                    pushedColor++;
-                }
-                bool collapsingHeader = ImGui::CollapsingHeader(klass->getFullName().c_str());
-                if (ImGui::IsItemClicked())
-                    selectedClass = klass;
-                if (filterByMethod && ImGui::IsItemHeld(0.7f))
-                {
-                    auto name = Util::extractClassNameFromTypename(klass->getFullName().c_str());
-                    auto &tab = Tool::OpenNewTab();
-                    tab.filter = name;
-                    tab.selectedImage = klass->getImage();
-                    tab.FilterClasses(tab.filter);
-                }
-                if (collapsingHeader && !sideSplit)
-                {
+                    bool isValueType = Il2cpp::GetClassType(klass)->isValueType();
+                    int pushedColor = 0;
+                    if (isValueType)
+                    {
+                        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(222, 222, 222, 255));
+                        pushedColor++;
+                    }
+                    bool collapsingHeader = ImGui::CollapsingHeader(klass->getFullName().c_str());
+                    if (ImGui::IsItemClicked())
+                        selectedClass = klass;
+                    if (filterByMethod && ImGui::IsItemHeld(0.7f))
+                    {
+                        auto name = Util::extractClassNameFromTypename(klass->getFullName().c_str());
+                        auto &tab = Tool::OpenNewTab();
+                        tab.filter = name;
+                        tab.selectedImage = klass->getImage();
+                        tab.FilterClasses(tab.filter);
+                    }
+                    if (collapsingHeader && !sideSplit)
+                    {
+                        if (pushedColor)
+                        {
+                            ImGui::PopStyleColor(pushedColor);
+                            pushedColor = 0;
+                        }
+                        // ClassViewer 内部已按类指针 PushID/PopID，这里不再重复压栈
+                        // TODO: Rename Dump (DumpPopup and other related functions used) to Inspect
+                        ClassViewer(klass);
+                    }
                     if (pushedColor)
                     {
                         ImGui::PopStyleColor(pushedColor);
                         pushedColor = 0;
                     }
-                    // ClassViewer 内部已按类指针 PushID/PopID，这里不再重复压栈
-                    // TODO: Rename Dump (DumpPopup and other related functions used) to Inspect
-                    ClassViewer(klass);
-                }
-                if (pushedColor)
-                {
-                    ImGui::PopStyleColor(pushedColor);
-                    pushedColor = 0;
                 }
             }
             ImGui::ScrollWhenDraggingOnVoid();
