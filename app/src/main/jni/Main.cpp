@@ -49,6 +49,8 @@ extern ImVec2 initialScreenSize;
 bool collapsed = false;
 bool fullScreen = false;
 bool resetWindow = false;
+bool centerWindow = false;
+int snapWindow = 0; // 0=无, 1=左上, 2=右上, 3=左下, 4=右下
 int selectedScale = 3;
 int selectedTheme = 0;
 int fpsLimit = 0;
@@ -115,6 +117,43 @@ void draw_thread()
             ImGui::SetNextWindowPos(lastPos);
             ImGui::SetNextWindowSize(lastSize);
         }
+    }
+    if (centerWindow || snapWindow)
+    {
+        auto screenSize = ImGui::GetIO().DisplaySize;
+        ImVec2 winSize = lastSize;
+        if (winSize.x <= 0.f || winSize.y <= 0.f)
+        {
+            winSize = ImVec2(screenSize.x * 0.5f, screenSize.y * 0.5f);
+        }
+        if (centerWindow)
+        {
+            centerWindow = false;
+            ImGui::SetNextWindowPos(ImVec2((screenSize.x - winSize.x) * 0.5f, (screenSize.y - winSize.y) * 0.5f));
+        }
+        else if (snapWindow)
+        {
+            const float margin = 0.f;
+            switch (snapWindow)
+            {
+            case 1: // 左上
+                ImGui::SetNextWindowPos(ImVec2(margin, margin));
+                break;
+            case 2: // 右上
+                ImGui::SetNextWindowPos(ImVec2(screenSize.x - winSize.x - margin, margin));
+                break;
+            case 3: // 左下
+                ImGui::SetNextWindowPos(ImVec2(margin, screenSize.y - winSize.y - margin));
+                break;
+            case 4: // 右下
+                ImGui::SetNextWindowPos(ImVec2(screenSize.x - winSize.x - margin, screenSize.y - winSize.y - margin));
+                break;
+            default:
+                break;
+            }
+            snapWindow = 0;
+        }
+        ImGui::SetNextWindowSize(winSize);
     }
     if (fullScreen)
     {
@@ -395,6 +434,36 @@ void draw_thread()
             }
             ImGui::SameLine();
             ImGui::TextDisabled("(%zu)", TextureCache::Count());
+            ImGui::Separator();
+            ImGui::Text("%s", Lang::T("视口", "Viewport"));
+            if (ImGui::Button(Lang::T("重置窗口", "Reset Window")))
+            {
+                resetWindow = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(Lang::T("居中", "Center")))
+            {
+                centerWindow = true;
+            }
+            if (ImGui::Button(Lang::T("左上", "Top-Left")))
+            {
+                snapWindow = 1;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(Lang::T("右上", "Top-Right")))
+            {
+                snapWindow = 2;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(Lang::T("左下", "Bottom-Left")))
+            {
+                snapWindow = 3;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(Lang::T("右下", "Bottom-Right")))
+            {
+                snapWindow = 4;
+            }
 #ifdef __DEBUG__
             if (ImGui::Checkbox("Show Demo Window", &showDemoWindow))
             {
