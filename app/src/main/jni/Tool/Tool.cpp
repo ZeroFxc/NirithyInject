@@ -21,6 +21,8 @@ extern std::mutex hookerMtx;
 extern bool autoDump;
 // 将全局配置写回 tool_conf.json（定义于 Main.cpp）
 void SaveGlobalConfig();
+// 以 JSON 文本写入全局配置并持久化（定义于 Main.cpp）
+void ConfigSetJson(const char *key, const char *jsonValue);
 
 std::vector<Il2CppImage *> g_Images;
 
@@ -287,7 +289,7 @@ namespace Tool
 
         // 自动转储开关：开启后进入该页面即自动开始一次转储
         if (ImGui::Checkbox(Lang::T("自动转储", "Auto dump"), &autoDump))
-            SaveGlobalConfig();
+            ConfigSetJson("autoDump", autoDump ? "true" : "false");
 
         // 程序集（DLL）选择：可单选或多选，未勾选任何项时转储全部
         ImGui::Separator();
