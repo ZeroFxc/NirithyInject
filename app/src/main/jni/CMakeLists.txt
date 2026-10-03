@@ -49,6 +49,7 @@ set(LOCAL_SRC_FILES
         Tool/Patcher.cpp
         Tool/PopUpSelector.cpp
         Tool/ClassesTab.cpp
+        Tool/Clipboard.cpp
         Tool/Unity.cpp
         Tool/TextureCache.cpp
         Tool/Targets.cpp
