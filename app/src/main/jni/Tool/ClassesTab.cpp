@@ -1358,6 +1358,11 @@ bool ClassesTab::MethodViewer(Il2CppClass *klass, MethodInfo *method, const Meth
                 Util::prependStringToBuffer(treeLabel, buff);
             }
         }
+        // 状态图标前缀：已挂钩 [H]、已打补丁 [P]（保留原有 Hit Count / Returns 文本与颜色）
+        if (hooked)
+            Util::prependStringToBuffer(treeLabel, "[H] ");
+        if (patched)
+            Util::prependStringToBuffer(treeLabel, "[P] ");
     }
     bool state = ImGui::TreeNode(treeLabel);
     if (state)
