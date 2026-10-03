@@ -8,6 +8,7 @@
 //  [ ] Platform: Clipboard support.
 //  [ ] Platform: Gamepad support.
 //  [ ] Platform: Mouse cursor shape and visibility (ImGuiBackendFlags_HasMouseCursors). Disable with 'io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange'. FIXME: Check if this is even possible with Android.
+//  [ ] Platform: Multi-viewport support (multiple windows). Not meaningful on Android.
 // Important:
 //  - Consider using SDL or GLFW backend on Android, which will be more full-featured than this.
 //  - FIXME: On-screen keyboard currently needs to be enabled by the application (see examples/ and issue #3446)
@@ -23,8 +24,6 @@
 
 // CHANGELOG
 // (minor and older changes stripped away, please see git history for details)
-//  LOCAL-MOD: allow g_Window == nullptr (injected/hook scenario): skip window-size
-//            query in NewFrame() and keep the io.DisplaySize set by the caller.
 //  2026-07-15: Inputs: clear mouse position on touch release (AMOTION_EVENT_ACTION_UP) to prevent items from staying in hovered state. (#6627, #9474)
 //  2023-04-11: Inputs: calling new io.AddMouseSourceEvent() to discriminate Mouse from Touch events.
 //  2022-09-26: Inputs: renamed ImGuiKey_ModXXX introduced in 1.87 to ImGuiMod_XXX (old names still supported).
@@ -291,20 +290,15 @@ void ImGui_ImplAndroid_NewFrame()
 {
     ImGuiIO& io = ImGui::GetIO();
 
-    // LOCAL-MOD: when no ANativeWindow is available (injected/hook scenario, g_Window == nullptr)
-    // keep io.DisplaySize as set by the caller instead of querying the window.
-    if (g_Window != nullptr)
-    {
-        // Setup display size (every frame to accommodate for window resizing)
-        int32_t window_width = ANativeWindow_getWidth(g_Window);
-        int32_t window_height = ANativeWindow_getHeight(g_Window);
-        int display_width = window_width;
-        int display_height = window_height;
+    // Setup display size (every frame to accommodate for window resizing)
+    int32_t window_width = ANativeWindow_getWidth(g_Window);
+    int32_t window_height = ANativeWindow_getHeight(g_Window);
+    int display_width = window_width;
+    int display_height = window_height;
 
-        io.DisplaySize = ImVec2((float)window_width, (float)window_height);
-        if (window_width > 0 && window_height > 0)
-            io.DisplayFramebufferScale = ImVec2((float)display_width / window_width, (float)display_height / window_height);
-    }
+    io.DisplaySize = ImVec2((float)window_width, (float)window_height);
+    if (window_width > 0 && window_height > 0)
+        io.DisplayFramebufferScale = ImVec2((float)display_width / window_width, (float)display_height / window_height);
 
     // Setup time step
     struct timespec current_timespec;
