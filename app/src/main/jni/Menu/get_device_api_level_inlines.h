@@ -37,7 +37,10 @@ __BEGIN_DECLS
 int __system_property_get(const char* __name, char* __value);
 int atoi(const char* __s) __attribute_pure__;
 
-int api_level() {
+// 获取设备 API 等级（ro.build.version.sdk）。
+// 说明：必须声明为 static inline，否则被多个编译单元包含时会重复定义；
+// 读取失败时返回 -1，调用方需自行处理未知等级的情况。
+static inline int api_level() {
   char value[92] = { 0 };
   if (__system_property_get("ro.build.version.sdk", value) < 1) return -1;
   int api_level = atoi(value);

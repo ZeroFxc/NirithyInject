@@ -3,6 +3,7 @@
 
 #include "VulkanHook.h"
 #include "ImGui.h"
+#include "get_device_api_level_inlines.h"
 #include "Includes/Logger.h"
 #include "Includes/obfuscate.h"
 #include "dobby.h"
@@ -526,6 +527,17 @@ void initVulkanHooks()
 {
     if (g_hooksInstalled.exchange(true))
         return;
+
+    // API < 26 的设备上 Vulkan loader/驱动不完善，加载并 hook libvulkan.so 容易崩溃，
+    // 因此直接跳过 Vulkan 叠加层，仅保留 GLES 路径。读取不到等级（-1）时按可用来处理。
+    const int apiLevel = api_level();
+    if (apiLevel >= 0 && apiLevel < 26)
+    {
+        LOGI("API level %d < 26 — skipping Vulkan overlay hooks", apiLevel);
+        g_hooksInstalled = false;
+        return;
+    }
+
     g_vulkanLib = dlopen(OBFUSCATE("libvulkan.so"), RTLD_NOW | RTLD_NOLOAD);
     if (!g_vulkanLib)
         g_vulkanLib = dlopen(OBFUSCATE("libvulkan.so"), RTLD_NOW);
