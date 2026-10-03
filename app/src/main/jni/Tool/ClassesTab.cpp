@@ -41,6 +41,35 @@ static Il2CppObject *CreateZeroInitValueType(Il2CppClass *klass)
     return Il2cpp::GetBoxedValue(klass, zero.data());
 }
 
+// 判断给定地址是否落在可读的内存映射中，避免手动输入非法地址后读取导致崩溃
+// address: 待校验地址；返回 true 表示该地址所在映射具备读权限
+static bool IsAddressReadable(uintptr_t address)
+{
+    if (!address)
+        return false;
+    FILE *fp = fopen("/proc/self/maps", "rt");
+    if (!fp)
+        return false;
+
+    bool readable = false;
+    char line[512];
+    while (fgets(line, sizeof(line), fp))
+    {
+        unsigned long start = 0;
+        unsigned long end = 0;
+        char perms[8]{0};
+        if (sscanf(line, "%lx-%lx %7s", &start, &end, perms) != 3)
+            continue;
+        if (address >= static_cast<uintptr_t>(start) && address < static_cast<uintptr_t>(end))
+        {
+            readable = perms[0] == 'r';
+            break;
+        }
+    }
+    fclose(fp);
+    return readable;
+}
+
 // 将文本解析为跟踪器参数替换值（原始 ABI 值，可直接写入寄存器）
 // type: 参数类型；text: 用户输入文本；keepAlive: 引用类型（字符串）保活对象输出
 // 返回值可直接用于 Gum 的 replace_nth_argument；解析失败或类型不支持时返回 nullptr
@@ -241,6 +270,53 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
     }
     static std::unordered_map<void *, bool> scanState;
     auto &scanning = scanState[klass];
+
+    // 手动输入对象地址：输入十六进制地址后校验对象类型，避免误用其它类型地址导致崩溃
+    static char addressBuffer[64]{0};
+    if (ImGui::Button(Lang::T("输入对象地址", "Enter object address")))
+    {
+        Keyboard::Open(
+            addressBuffer,
+            [klass, onSelect](const std::string &text)
+            {
+                snprintf(addressBuffer, sizeof(addressBuffer), "%s", text.c_str());
+                if (text.empty())
+                    return;
+
+                uintptr_t address = 0;
+                try
+                {
+                    address = std::stoull(text, nullptr, 0);
+                }
+                catch (...)
+                {
+                    LOGE("Invalid object address: %s", text.c_str());
+                    return;
+                }
+                if (!IsAddressReadable(address))
+                {
+                    LOGE("Object address is not readable: %s", text.c_str());
+                    return;
+                }
+
+                auto object = reinterpret_cast<Il2CppObject *>(address);
+                auto objectKlass = object->klass;
+                // 先确认 klass 指针本身可读，再校验其与当前类一致或为其子类，避免解引用非法指针
+                if (!objectKlass || !IsAddressReadable(reinterpret_cast<uintptr_t>(objectKlass)) ||
+                    (objectKlass != klass && !Il2cpp::IsClassParentOf(objectKlass, klass)))
+                {
+                    LOGE("Object class mismatch: expect %s", klass->getName());
+                    return;
+                }
+                onSelect(object);
+            });
+    }
+    if (addressBuffer[0])
+    {
+        ImGui::SameLine();
+        ImGui::Text("%s", addressBuffer);
+    }
+
     if (ImGui::Button(Lang::T("查找对象", "Find Objects")))
     {
         scanning = true;
