@@ -7,6 +7,13 @@
 #include "il2cpp-class.h"
 #endif
 
+// 非核心符号：不同 Unity 版本导出情况不一致（如 2017/5.x 缺少 il2cpp_image_get_class、
+// 低版本缺少 stats/bitmap/native_stack_trace 等），解析失败不影响工具可用性。
+// 未单独定义时退化为普通符号，保证与既有 DO_API 用法兼容。
+#ifndef DO_API_OPTIONAL
+#define DO_API_OPTIONAL(r, n, p) DO_API(r, n, p)
+#endif
+
 // clang-format off
 DO_API(int, il2cpp_init, (const char* domain_name));
 DO_API(int, il2cpp_init_utf16, (const Il2CppChar * domain_name));
@@ -41,7 +48,7 @@ DO_API(int, il2cpp_array_element_size, (Il2CppClass * array_class));
 DO_API(Il2CppImage*, il2cpp_assembly_get_image, (Il2CppAssembly * assembly));
 
 // class
-DO_API(void, il2cpp_class_for_each, (void(*klassReportFunc)(Il2CppClass* klass, void* userData), void* userData));
+DO_API_OPTIONAL(void, il2cpp_class_for_each, (void(*klassReportFunc)(Il2CppClass* klass, void* userData), void* userData));
 DO_API(Il2CppType*, il2cpp_class_enum_basetype, (Il2CppClass * klass));
 DO_API(bool, il2cpp_class_is_generic, (Il2CppClass * klass));
 DO_API(bool, il2cpp_class_is_inflated, (Il2CppClass * klass));
@@ -62,7 +69,7 @@ DO_API(FieldInfo*, il2cpp_class_get_field_from_name, (Il2CppClass * klass, const
 DO_API(MethodInfo*, il2cpp_class_get_methods, (Il2CppClass * klass, void* *iter));
 DO_API(MethodInfo*, il2cpp_class_get_method_from_name, (Il2CppClass * klass, const char* name, int argsCount));
 DO_API(const char*, il2cpp_class_get_name, (Il2CppClass * klass));
-DO_API(void, il2cpp_type_get_name_chunked, (Il2CppType * type, void(*chunkReportFunc)(void* data, void* userData), void* userData));
+DO_API_OPTIONAL(void, il2cpp_type_get_name_chunked, (Il2CppType * type, void(*chunkReportFunc)(void* data, void* userData), void* userData));
 DO_API(char*, il2cpp_class_get_namespace, (Il2CppClass * klass));
 DO_API(Il2CppClass*, il2cpp_class_get_parent, (Il2CppClass * klass));
 DO_API(Il2CppClass*, il2cpp_class_get_declaring_type, (Il2CppClass * klass));
@@ -88,12 +95,12 @@ DO_API(uint32_t, il2cpp_class_get_data_size, (Il2CppClass * klass));
 DO_API(void*, il2cpp_class_get_static_field_data, (Il2CppClass * klass));
 
 // testing only
-DO_API(size_t, il2cpp_class_get_bitmap_size, (Il2CppClass * klass));
-DO_API(void, il2cpp_class_get_bitmap, (Il2CppClass * klass, size_t * bitmap));
+DO_API_OPTIONAL(size_t, il2cpp_class_get_bitmap_size, (Il2CppClass * klass));
+DO_API_OPTIONAL(void, il2cpp_class_get_bitmap, (Il2CppClass * klass, size_t * bitmap));
 
 // stats
-DO_API(bool, il2cpp_stats_dump_to_file, (const char *path));
-DO_API(uint64_t, il2cpp_stats_get_value, (Il2CppStat stat));
+DO_API_OPTIONAL(bool, il2cpp_stats_dump_to_file, (const char *path));
+DO_API_OPTIONAL(uint64_t, il2cpp_stats_get_value, (Il2CppStat stat));
 
 // domain
 DO_API(Il2CppDomain*, il2cpp_domain_get, ());
@@ -107,7 +114,7 @@ DO_API(Il2CppException*, il2cpp_get_exception_argument_null, (char *arg));
 DO_API(void, il2cpp_format_exception, (Il2CppException * ex, char* message, int message_size));
 DO_API(void, il2cpp_format_stack_trace, (Il2CppException * ex, char* output, int output_size));
 DO_API(void, il2cpp_unhandled_exception, (Il2CppException*));
-DO_API(void, il2cpp_native_stack_trace, (Il2CppException * ex, uintptr_t** addresses, int* numFrames, char** imageUUID, char** imageName));
+DO_API_OPTIONAL(void, il2cpp_native_stack_trace, (Il2CppException * ex, uintptr_t** addresses, int* numFrames, char** imageUUID, char** imageName));
 
 // field
 DO_API(int, il2cpp_field_get_flags, (FieldInfo * field));
@@ -280,8 +287,8 @@ DO_API(const char*, il2cpp_image_get_name, (Il2CppImage * image));
 DO_API(const char*, il2cpp_image_get_filename, (Il2CppImage * image));
 DO_API(MethodInfo*, il2cpp_image_get_entry_point, (Il2CppImage * image));
 
-DO_API(size_t, il2cpp_image_get_class_count, (Il2CppImage * image));
-DO_API(Il2CppClass*, il2cpp_image_get_class, (Il2CppImage * image, size_t index));
+DO_API_OPTIONAL(size_t, il2cpp_image_get_class_count, (Il2CppImage * image));
+DO_API_OPTIONAL(Il2CppClass*, il2cpp_image_get_class, (Il2CppImage * image, size_t index));
 
 // Memory information
 DO_API(Il2CppManagedMemorySnapshot*, il2cpp_capture_memory_snapshot, ());

@@ -21,22 +21,38 @@
 #include "xdl/include/xdl.h"
 
 #define DO_API(r, n, p) r(*n) p
+#define DO_API_OPTIONAL(r, n, p) r(*n) p
 
 #include "il2cpp-api-functions.h"
 
 #undef DO_API
+#undef DO_API_OPTIONAL
 
 uint64_t il2cpp_base = 0;
+
+// 解析失败的非核心符号数量（仅用于诊断日志，不影响工具可用性）
+static int g_optionalSymbolsMissing = 0;
 
 void init_il2cpp_api(void *handle){
 #define DO_API(r, n, p)                                                                                                \
     {                                                                                                                  \
         n = (r(*) p)xdl_sym(handle, #n, nullptr);                                                                      \
     }
+// 非核心符号：解析失败只累计计数并打印调试日志，不视为初始化失败
+#define DO_API_OPTIONAL(r, n, p)                                                                                       \
+    {                                                                                                                  \
+        n = (r(*) p)xdl_sym(handle, #n, nullptr);                                                                      \
+        if (!n)                                                                                                        \
+        {                                                                                                              \
+            g_optionalSymbolsMissing++;                                                                                 \
+            LOGD("optional il2cpp symbol missing: %s", #n);                                                             \
+        }                                                                                                              \
+    }
 
 #include "il2cpp-api-functions.h"
 
 #undef DO_API
+#undef DO_API_OPTIONAL
 }
 
 std::string get_method_modifier(uint32_t flags)
@@ -549,7 +565,12 @@ void il2cpp_api_init(void *handle)
         LOGE("Failed to initialize il2cpp api (null handle).");
         return;
     }
+    g_optionalSymbolsMissing = 0;
     init_il2cpp_api(handle);
+    if (g_optionalSymbolsMissing > 0)
+    {
+        LOGI("%d optional il2cpp symbols unresolved (non-fatal)", g_optionalSymbolsMissing);
+    }
     if (il2cpp_domain_get_assemblies)
     {
         Dl_info dlInfo;
@@ -718,6 +739,9 @@ namespace Il2cpp
         }
         il2cpp_api_init(handle);
         xdl_close(handle);
+        // 核心符号校验：仅当 domain/assembly 这两个基础 API 缺失时才算初始化失败，
+        // 其余非核心符号（见 il2cpp-api-functions.h 中的 DO_API_OPTIONAL）缺失不影响可用性，
+        // 以避免因某个版本差异符号缺失就禁用整个检查器。
         if (!il2cpp_domain_get_assemblies || !il2cpp_domain_get)
         {
             g_statusMessage =
