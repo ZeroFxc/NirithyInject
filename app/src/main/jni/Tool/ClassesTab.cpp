@@ -1556,6 +1556,10 @@ void ClassesTab::Draw(int index, bool closeable)
                     FilterClasses(filter);
                 });
         }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("%s", Lang::T("支持 :方法名 直接按方法筛选", "Prefix with ':' to filter by method name"));
+        }
         if (!Keyboard::IsOpen() && ImGui::IsItemHeld())
         {
             Keyboard::Open(filter.c_str(),
@@ -2467,6 +2471,19 @@ void ClassesTab::FilterClasses(const std::string &filter)
     filteredClasses.clear();
     classes.clear();
     methodMap.clear(); // is this necessary?
+
+    // 冒号前缀：":MethodName" 表示按方法名筛选
+    std::string effectiveFilter = filter;
+    if (!filter.empty() && filter[0] == ':')
+    {
+        effectiveFilter = filter.substr(1);
+        filterByClass = false;
+        filterByMethod = true;
+        filterByField = false;
+        filterMethodByName = true;
+        filterMethodByReturn = false;
+        filterMethodByParams = false;
+    }
     if (includeAllImages)
     {
         for (auto image : g_Images)
@@ -2520,8 +2537,8 @@ void ClassesTab::FilterClasses(const std::string &filter)
 
         if (filterByClass)
         {
-            // if (klass->getFullName().find(filter) != std::string::npos)
-            if (finder(klass->getFullName(), filter))
+            // if (klass->getFullName().find(effectiveFilter) != std::string::npos)
+            if (finder(klass->getFullName(), effectiveFilter))
             {
                 filteredClasses.push_back(klass);
                 for (auto m : klass->getMethods())
@@ -2537,19 +2554,19 @@ void ClassesTab::FilterClasses(const std::string &filter)
             for (auto m : klass->getMethods())
             {
                 bool hit = false;
-                if (filterMethodByName && finder(m->getName(), filter))
+                if (filterMethodByName && finder(m->getName(), effectiveFilter))
                     hit = true;
                 if (!hit && filterMethodByReturn)
                 {
                     auto rt = m->getReturnType();
-                    if (rt && finder(rt->getName(), filter))
+                    if (rt && finder(rt->getName(), effectiveFilter))
                         hit = true;
                 }
                 if (!hit && filterMethodByParams)
                 {
                     for (auto &[pname, ptype] : m->getParamsInfo())
                     {
-                        if ((pname && finder(pname, filter)) || (ptype && finder(ptype->getName(), filter)))
+                        if ((pname && finder(pname, effectiveFilter)) || (ptype && finder(ptype->getName(), effectiveFilter)))
                         {
                             hit = true;
                             break;
@@ -2571,8 +2588,8 @@ void ClassesTab::FilterClasses(const std::string &filter)
             bool found = false;
             for (auto f : klass->getFields())
             {
-                // if (std::string(f->getName()).find(filter) != std::string::npos)
-                if (finder(f->getName(), filter))
+                // if (std::string(f->getName()).find(effectiveFilter) != std::string::npos)
+                if (finder(f->getName(), effectiveFilter))
                 {
                     found = true;
                 }
