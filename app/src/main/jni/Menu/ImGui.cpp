@@ -243,7 +243,7 @@ void installOverlayHooks()
         }
         s_inputHooksSettled = true;
         if (!origInput || !origConsume)
-            LOGI("%s", (char *)OBFUSCATE("input hooks unavailable on this Android version (libinput symbols hidden)"));
+            LOGD("libinput touch injection unavailable on this Android version (symbols hidden) — menu touch still works via ImGui_ImplAndroid");
     }
 }
 
