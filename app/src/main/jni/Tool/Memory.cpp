@@ -68,29 +68,29 @@ namespace Memory
             Keyboard::Open(
                 g_addressInput,
                 [](const std::string &text)
-                {
-                    snprintf(g_addressInput, sizeof(g_addressInput), "%s", text.c_str());
-                    if (text.empty())
-                        return;
-
-                    uintptr_t address = 0;
-                    try
-                    {
-                        address = std::stoull(text, nullptr, 0);
-                    }
-                    catch (...)
-                    {
-                        LOGE("Invalid memory address: %s", text.c_str());
-                        return;
-                    }
-                    if (!LoadAddress(address, kMaxDumpSize))
-                        LOGE("Failed to read memory at %s", text.c_str());
-                });
+                { snprintf(g_addressInput, sizeof(g_addressInput), "%s", text.c_str()); });
         }
         if (g_addressInput[0])
         {
             ImGui::SameLine();
             ImGui::Text("%s", g_addressInput);
+        }
+
+        // 尝试加载：解析输入框中的地址并读取（支持 0x 前缀）
+        if (ImGui::Button(Lang::T("尝试加载", "Try load")))
+        {
+            uintptr_t address = 0;
+            try
+            {
+                address = std::stoull(g_addressInput, nullptr, 0);
+            }
+            catch (...)
+            {
+                LOGE("Invalid memory address: %s", g_addressInput);
+                return;
+            }
+            if (!LoadAddress(address, kMaxDumpSize))
+                LOGE("Failed to read memory at %s", g_addressInput);
         }
 
         if (!g_loaded)
