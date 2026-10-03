@@ -915,7 +915,7 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
             }
             if (isVoid)
             {
-                callResults.at(method).push_back({Lang::T("调用完成 (void)", "call completed (void)"), thisParam});
+                callResults.at(method).push_back({"System.Void", Lang::T("调用完成 (void)", "call completed (void)"), 0, thisParam});
             }
             else if (result && strcmp(method->getName(), ".ctor") != 0)
             {
@@ -924,16 +924,18 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
                 {
                     std::vector<uintptr_t> visited;
                     auto j = result->dump(visited, 1);
-                    callResults.at(method).push_back(std::pair{j.begin().value().dump(), nullptr});
+                    callResults.at(method).push_back({resultType->getName(), j.begin().value().dump(), 0, nullptr});
                 }
                 else if (strcmp(resultType->getName(), "System.String") == 0)
                 {
-                    callResults.at(method).push_back({((Il2CppString *)result)->to_string(), nullptr});
+                    callResults.at(method).push_back(
+                        {"System.String", ((Il2CppString *)result)->to_string(), 0, nullptr});
                 }
                 else if (resultType->isEnum())
                 {
                     callResults.at(method).push_back(
-                        {result->invoke_method<Il2CppString *>("ToString")->to_string(), nullptr});
+                        {resultType->getName(), result->invoke_method<Il2CppString *>("ToString")->to_string(), 0,
+                         nullptr});
                 }
                 else
                 {
@@ -957,18 +959,22 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
                         }
                         if (str)
                         {
-                            callResults.at(method).push_back({str->to_string(), result});
+                            callResults.at(method).push_back(
+                                {resultType->getName(), str->to_string(), result->klass->getFields(true).size(), result});
                         }
                         else
                         {
-                            callResults.at(method).push_back({"the call returned null", result});
+                            callResults.at(method).push_back(
+                                {resultType->getName(), "the call returned null",
+                                 result->klass->getFields(true).size(), result});
                         }
                     }
                     else
                     {
                         char resultStr[16]{0};
                         sprintf(resultStr, "%p", result);
-                        callResults.at(method).push_back({resultStr, result});
+                        callResults.at(method).push_back(
+                            {resultType->getName(), resultStr, result->klass->getFields(true).size(), result});
                     }
                 }
                 savedSet[resultType->getClass()].insert(result);
@@ -976,7 +982,7 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
             }
             else
             {
-                callResults.at(method).push_back({"the call returned null", nullptr});
+                callResults.at(method).push_back({returnType ? returnType->getName() : "", "the call returned null", 0, nullptr});
             }
         }
         else
@@ -1002,21 +1008,43 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
         ImGui::Separator();
         ImGui::Text("%s", Lang::T("调用结果:", "Call Results:"));
         int ri = 0;
-        for (auto [callResult, object] : callResults.at(method))
+        for (auto &callResult : callResults.at(method))
         {
             ImGui::PushID(ri++);
-            if (object)
+            // 结构化面板：第一行显示返回类型名
+            if (!callResult.typeName.empty())
+            {
+                ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1.0f), "%s", callResult.typeName.c_str());
+            }
+            if (callResult.object && callResult.fieldCount > 0)
+            {
+                // 引用类型：点击展开内联 ImGuiJson 树
+                char label[512];
+                snprintf(label, sizeof(label), "%s  (%zu fields)###cr%p%d", callResult.value.c_str(),
+                         callResult.fieldCount, callResult.object, ri);
+                if (ImGui::TreeNode(label))
+                {
+                    if (dataMap.find(callResult.object) == dataMap.end() ||
+                        !dataMap[callResult.object].first.first)
+                    {
+                        setJsonObject(callResult.object);
+                    }
+                    ImGuiJson(callResult.object);
+                    ImGui::TreePop();
+                }
+            }
+            else if (callResult.object)
             {
                 char btn[512];
-                snprintf(btn, sizeof(btn), "%s###cr%p%d", callResult.c_str(), object, ri);
+                snprintf(btn, sizeof(btn), "%s###cr%p%d", callResult.value.c_str(), callResult.object, ri);
                 if (ImGui::Button(btn))
                 {
-                    setJsonObject(object);
+                    setJsonObject(callResult.object);
                 }
             }
             else
             {
-                ImGui::Text("%s", callResult.c_str());
+                ImGui::Text("%s", callResult.value.c_str());
             }
             ImGui::PopID();
             ImGui::Separator();

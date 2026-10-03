@@ -55,8 +55,17 @@ struct ClassesTab
     static std::unordered_map<Il2CppClass *, std::vector<Il2CppObject *>> objectMap;
     static std::unordered_map<Il2CppClass *, std::vector<Il2CppObject *>> newObjectMap;
     static std::unordered_map<Il2CppClass *, std::set<Il2CppObject *>> savedSet;
+    // 调用结果：类型名 + 值 + 字段数（引用类型可点击展开 ImGuiJson）
+    struct CallResult
+    {
+        std::string typeName;            // 返回类型名
+        std::string value;               // 值的文本表示
+        size_t fieldCount = 0;           // 返回对象的字段数，0 表示不可展开
+        Il2CppObject *object = nullptr;  // 返回对象，可展开时为非空
+    };
+
     std::unordered_map<MethodInfo *, std::unordered_map<std::string, ParamValue>> paramMap{};
-    std::unordered_map<MethodInfo *, CircularBuffer<std::pair<std::string, Il2CppObject *>>> callResults{};
+    std::unordered_map<MethodInfo *, CircularBuffer<CallResult>> callResults{};
 
     MethodList &buildMethodMap(Il2CppClass *klass);
 
