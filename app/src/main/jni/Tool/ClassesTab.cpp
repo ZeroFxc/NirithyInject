@@ -2307,7 +2307,10 @@ void ClassesTab::Draw(int index, bool closeable)
                         ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(222, 222, 222, 255));
                         pushedColor++;
                     }
-                    bool collapsingHeader = ImGui::CollapsingHeader(klass->getFullName().c_str());
+                    ImGuiTreeNodeFlags nodeFlags = ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth;
+                    if (selectedClass == klass)
+                        nodeFlags |= ImGuiTreeNodeFlags_Selected;
+                    bool collapsingHeader = ImGui::TreeNodeEx(klass->getFullName().c_str(), nodeFlags);
                     if (ImGui::IsItemClicked())
                         selectedClass = klass;
                     if (filterByMethod && ImGui::IsItemHeld(0.7f))
@@ -2318,16 +2321,20 @@ void ClassesTab::Draw(int index, bool closeable)
                         tab.selectedImage = klass->getImage();
                         tab.FilterClasses(tab.filter);
                     }
-                    if (collapsingHeader && !sideSplit)
+                    if (collapsingHeader)
                     {
-                        if (pushedColor)
+                        if (!sideSplit)
                         {
-                            ImGui::PopStyleColor(pushedColor);
-                            pushedColor = 0;
+                            if (pushedColor)
+                            {
+                                ImGui::PopStyleColor(pushedColor);
+                                pushedColor = 0;
+                            }
+                            // ClassViewer 内部已按类指针 PushID/PopID，这里不再重复压栈
+                            // TODO: Rename Dump (DumpPopup and other related functions used) to Inspect
+                            ClassViewer(klass);
                         }
-                        // ClassViewer 内部已按类指针 PushID/PopID，这里不再重复压栈
-                        // TODO: Rename Dump (DumpPopup and other related functions used) to Inspect
-                        ClassViewer(klass);
+                        ImGui::TreePop();
                     }
                     if (pushedColor)
                     {
