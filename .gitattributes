@@ -1,0 +1,11 @@
+# 统一换行符，避免 Windows 下 core.autocrlf=true 造成的构建产物差异。
+#
+# webui 源码若被检出为 CRLF，Vite 构建出的单文件 index.html 也会带 CRLF，
+# 与已提交的 zygisk-module/webroot/index.html 产生纯换行的虚假改动。
+# 另外 KernelSU 明确要求 module.prop 使用 UNIX (LF) 换行，shell 脚本同理。
+
+webui/**                  text eol=lf
+zygisk-module/webroot/**  text eol=lf
+zygisk-module/module.prop text eol=lf
+zygisk-module/*.sh        text eol=lf
+zygisk-module/META-INF/** text eol=lf
