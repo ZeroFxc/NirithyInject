@@ -2188,6 +2188,11 @@ void ClassesTab::Draw(int index, bool closeable)
         {
             ImGui::OpenPopup("FilterOptions");
         }
+        ImGui::SameLine();
+        if (ImGui::SmallButton(sideSplit ? Lang::T("单列", "Single") : Lang::T("双列", "Split")))
+        {
+            sideSplit = !sideSplit;
+        }
 
         {
             static bool processing = false;
