@@ -80,6 +80,7 @@ struct ClassesTab
 
     ClassMethodMap methodMap{};
     ClassesTab();
+    ~ClassesTab();
 
     Paths &getJsonPaths(Il2CppObject *object);
 

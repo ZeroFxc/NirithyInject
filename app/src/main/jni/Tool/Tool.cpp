@@ -46,7 +46,7 @@ namespace Tool
 
     std::vector<Il2CppClass *> tracer;
 
-    std::vector<ClassesTab> classesTabs;
+    std::vector<std::unique_ptr<ClassesTab>> classesTabs;
 
     void ConfigLoad()
     {
@@ -55,7 +55,10 @@ namespace Tool
         {
             Util::FileReader configFile("class_tabs.json");
             nlohmann::ordered_json j = nlohmann::ordered_json::parse(configFile.read());
-            classesTabs = j.template get<std::vector<ClassesTab>>();
+            auto loaded = j.template get<std::vector<ClassesTab>>();
+            classesTabs.clear();
+            for (auto &t : loaded)
+                classesTabs.push_back(std::make_unique<ClassesTab>(std::move(t)));
         }
         catch (nlohmann::json::exception &e)
         {
@@ -67,7 +70,11 @@ namespace Tool
     {
         LOGD(__FUNCTION__);
         Util::FileWriter configFile("class_tabs.json");
-        nlohmann::ordered_json j = classesTabs;
+        std::vector<ClassesTab> raw;
+        raw.reserve(classesTabs.size());
+        for (auto &t : classesTabs)
+            raw.push_back(*t);
+        nlohmann::ordered_json j = raw;
         configFile.write(j.dump(2, ' ').c_str());
     }
     void ConfigInit()
@@ -147,7 +154,7 @@ namespace Tool
 
     ClassesTab &GetFirstTab()
     {
-        return classesTabs[0];
+        return *classesTabs[0];
     }
 
     ClassesTab &OpenNewTab()
@@ -155,13 +162,14 @@ namespace Tool
         ClassesTab clone;
         for (auto &c : classesTabs)
         {
-            if (c.currentlyOpened)
+            if (c->currentlyOpened)
             {
-                clone.selectedImage = c.selectedImage;
+                clone.selectedImage = c->selectedImage;
                 break;
             }
         }
-        return classesTabs.emplace_back(clone);
+        classesTabs.push_back(std::make_unique<ClassesTab>(std::move(clone)));
+        return *classesTabs.back();
     }
     ClassesTab &OpenNewTabFromClass(Il2CppClass *klass)
     {
@@ -183,7 +191,7 @@ namespace Tool
         // 跳过第一个默认 tab，只检查用户主动创建的子 tab
         for (size_t i = 1; i < classesTabs.size(); i++)
         {
-            if (classesTabs[i].filter == fullName)
+            if (classesTabs[i]->filter == fullName)
                 return true;
         }
         return false;
@@ -196,9 +204,9 @@ namespace Tool
         std::string fullName = klass->getFullName();
         for (size_t i = 1; i < classesTabs.size(); i++)
         {
-            if (classesTabs[i].filter == fullName)
+            if (classesTabs[i]->filter == fullName)
             {
-                classesTabs[i].opened = false;
+                classesTabs[i]->opened = false;
                 return;
             }
         }
@@ -217,9 +225,9 @@ namespace Tool
         if (classesTabs.empty())
             OpenNewTab();
 
-        for (ClassesTab &tab : classesTabs)
+        for (auto &tab : classesTabs)
         {
-            tab.FilterClasses(tab.filter);
+            tab->FilterClasses(tab->filter);
         }
 #ifdef USE_FRIDA
         Frida::Init();
@@ -246,7 +254,7 @@ namespace Tool
             auto it = std::begin(classesTabs);
             while (it != std::end(classesTabs))
             {
-                if (!it->opened)
+                if (!(*it)->opened)
                 {
                     LOGD("Closing %d", i);
                     it = classesTabs.erase(it);
@@ -261,8 +269,8 @@ namespace Tool
                 else
                 {
                     ImGui::PushID(i);
-                    it->Draw(i, true);
-                    it->DrawTabMap();
+                    (*it)->Draw(i, true);
+                    (*it)->DrawTabMap();
                     ImGui::PopID();
                     ++it;
                     i++;

@@ -251,6 +251,16 @@ ClassesTab::ClassesTab()
     }
 }
 
+ClassesTab::~ClassesTab()
+{
+    // 标签页关闭时，清理本实例拥有的方法详情卡片，避免 owner 指针悬空导致幽灵窗口
+    for (auto &card : methodCards)
+    {
+        if (card.owner == this)
+            card.open = false;
+    }
+}
+
 ClassesTab::Paths &ClassesTab::getJsonPaths(Il2CppObject *object)
 {
     return dataMap[object].second;
@@ -2393,6 +2403,16 @@ void ClassesTab::Draw(int index, bool closeable)
             ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
             if (ImGui::Begin(listWinId, nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_HorizontalScrollbar))
             {
+                // 统计当前展开的类数量（遍历所有类，不只是可见的，避免 clipper 漏计）
+                int currentExpanded = 0;
+                for (auto k : filteredClasses)
+                {
+                    if (states[k])
+                        currentExpanded++;
+                }
+                expandedClassCount = currentExpanded;
+                sideSplit = currentExpanded > 0;
+
                 ImGuiListClipper clipper;
                 clipper.Begin((int)filteredClasses.size());
                 while (clipper.Step())
@@ -2411,15 +2431,8 @@ void ClassesTab::Draw(int index, bool closeable)
                         ImGuiTreeNodeFlags nodeFlags = ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_AllowOverlap;
                         if (selectedClass == klass)
                             nodeFlags |= ImGuiTreeNodeFlags_Selected;
-                        bool wasOpen = states[klass];
                         bool collapsingHeader = ImGui::TreeNodeEx(klass->getFullName().c_str(), nodeFlags);
-                        // 展开状态变化时更新计数器，自动切换双列布局
-                        if (collapsingHeader && !wasOpen)
-                            expandedClassCount++;
-                        else if (!collapsingHeader && wasOpen)
-                            expandedClassCount--;
                         states[klass] = collapsingHeader;
-                        sideSplit = expandedClassCount > 0;
                         if (ImGui::IsItemClicked())
                             selectedClass = klass;
                         // 钉入/移除顶部子标签卡按钮（AllowOverlap 允许按钮重叠在节点行尾）
