@@ -99,11 +99,10 @@ void setupMenu()
     io.DisplaySize = ImVec2((float)glWidth, (float)glHeight);
     // io.ConfigWindowsMoveFromTitleBarOnly = true;
     io.IniFilename = nullptr;
-    // enable docking
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    // enable docking (1.92+ master release: ImGuiConfigFlags_DockingEnable is docking-branch only, not available)
 
     // Setup Platform/Renderer backends
-    ImGui_ImplAndroid_Init();
+    ImGui_ImplAndroid_Init(nullptr);
     ImGui_ImplOpenGL3_Init("#version 300 es");
 
     // int systemScale = (1.0 / glWidth) * glWidth;
@@ -126,8 +125,9 @@ void internalDrawMenu(int width, int height)
     if (!isInitialized)
         return;
 
+    ImGui::GetIO().DisplaySize = ImVec2((float)width, (float)height);
     ImGui_ImplOpenGL3_NewFrame();
-    ImGui_ImplAndroid_NewFrame(width, height);
+    ImGui_ImplAndroid_NewFrame();
     ImGui::NewFrame();
 
     ImGui::SetNextWindowSize(ImVec2((float)width / 2, (float)height / 2), ImGuiCond_Once);

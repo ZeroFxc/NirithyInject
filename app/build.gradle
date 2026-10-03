@@ -4,13 +4,13 @@ android {
     compileSdkVersion 30
     defaultConfig {
         // applicationId "com.android.support"
-        minSdkVersion 19
+        minSdkVersion 21
         targetSdkVersion 30
         versionCode 1
         versionName "3.2"
         // signingConfig signingConfigs.debug
     }
-    ndkVersion "25.2.9519653"
+    ndkVersion "30.0.16248370"
     buildTypes {
         release {
             minifyEnabled true

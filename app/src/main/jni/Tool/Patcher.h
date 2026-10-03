@@ -1,4 +1,5 @@
 #pragma once
+#include <vector>
 #include "asmjit/asmjit.h"
 #ifdef __aarch64__
     #include "asmjit/a64.h"

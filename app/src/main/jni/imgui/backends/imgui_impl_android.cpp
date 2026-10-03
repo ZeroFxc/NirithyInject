@@ -1,14 +1,13 @@
 // dear imgui: Platform Binding for Android native app
-// This needs to be used along with the OpenGL 3 Renderer (imgui_impl_opengl3)
+// This needs to be used along with a Renderer (e.g. OpenGL3, Vulkan..)
 
 // Implemented features:
-//  [X] Platform: Keyboard support. Since 1.87 we are using the io.AddKeyEvent() function. Pass ImGuiKey values to all key functions e.g. ImGui::IsKeyPressed(ImGuiKey_Space). [Legacy AKEYCODE_* values will also be supported unless IMGUI_DISABLE_OBSOLETE_KEYIO is set]
+//  [X] Platform: Keyboard support. Since 1.87 we are using the io.AddKeyEvent() function. Pass ImGuiKey values to all key functions e.g. ImGui::IsKeyPressed(ImGuiKey_Space). [Legacy AKEYCODE_* values are obsolete since 1.87 and not supported since 1.91.5]
 //  [X] Platform: Mouse support. Can discriminate Mouse/TouchScreen/Pen.
-// Missing features:
+// Missing features or Issues:
 //  [ ] Platform: Clipboard support.
-//  [ ] Platform: Gamepad support. Enable with 'io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad'.
-//  [ ] Platform: Mouse cursor shape and visibility. Disable with 'io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange'. FIXME: Check if this is even possible with Android.
-//  [ ] Platform: Multi-viewport support (multiple windows). Not meaningful on Android.
+//  [ ] Platform: Gamepad support.
+//  [ ] Platform: Mouse cursor shape and visibility (ImGuiBackendFlags_HasMouseCursors). Disable with 'io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange'. FIXME: Check if this is even possible with Android.
 // Important:
 //  - Consider using SDL or GLFW backend on Android, which will be more full-featured than this.
 //  - FIXME: On-screen keyboard currently needs to be enabled by the application (see examples/ and issue #3446)
@@ -24,13 +23,17 @@
 
 // CHANGELOG
 // (minor and older changes stripped away, please see git history for details)
-//  2022-09-26: Inputs: Renamed ImGuiKey_ModXXX introduced in 1.87 to ImGuiMod_XXX (old names still supported).
+//  LOCAL-MOD: allow g_Window == nullptr (injected/hook scenario): skip window-size
+//            query in NewFrame() and keep the io.DisplaySize set by the caller.
+//  2026-07-15: Inputs: clear mouse position on touch release (AMOTION_EVENT_ACTION_UP) to prevent items from staying in hovered state. (#6627, #9474)
+//  2023-04-11: Inputs: calling new io.AddMouseSourceEvent() to discriminate Mouse from Touch events.
+//  2022-09-26: Inputs: renamed ImGuiKey_ModXXX introduced in 1.87 to ImGuiMod_XXX (old names still supported).
 //  2022-01-26: Inputs: replaced short-lived io.AddKeyModsEvent() (added two weeks ago) with io.AddKeyEvent() using ImGuiKey_ModXXX flags. Sorry for the confusion.
 //  2022-01-17: Inputs: calling new io.AddMousePosEvent(), io.AddMouseButtonEvent(), io.AddMouseWheelEvent() API (1.87+).
 //  2022-01-10: Inputs: calling new io.AddKeyEvent(), io.AddKeyModsEvent() + io.SetKeyEventNativeData() API (1.87+). Support for full ImGuiKey range.
 //  2021-03-04: Initial version.
 
-#include "imgui/imgui.h"
+#include "imgui.h"
 #ifndef IMGUI_DISABLE
 #include "imgui_impl_android.h"
 #include <time.h>
@@ -157,7 +160,6 @@ static ImGuiKey ImGui_ImplAndroid_KeyCodeToImGuiKey(int32_t key_code)
     }
 }
 
-extern ImVec2 initialScreenSize;
 int32_t ImGui_ImplAndroid_HandleInputEvent(const AInputEvent* input_event)
 {
     ImGuiIO& io = ImGui::GetIO();
@@ -224,17 +226,16 @@ int32_t ImGui_ImplAndroid_HandleInputEvent(const AInputEvent* input_event)
         case AMOTION_EVENT_ACTION_DOWN:
         case AMOTION_EVENT_ACTION_UP:
         {
+            // Physical mouse buttons (and probably other physical devices) also invoke the actions AMOTION_EVENT_ACTION_DOWN/_UP,
+            // but we have to process them separately to identify the actual button pressed. This is done below via
+            // AMOTION_EVENT_ACTION_BUTTON_PRESS/_RELEASE. Here, we only process "FINGER" input (and "UNKNOWN", as a fallback).
             int tool_type = AMotionEvent_getToolType(input_event, event_pointer_index);
             if (tool_type == AMOTION_EVENT_TOOL_TYPE_FINGER || tool_type == AMOTION_EVENT_TOOL_TYPE_UNKNOWN)
             {
-                ImVec2 currentScreenSize = io.DisplaySize;
-                float scaleX = currentScreenSize.x / initialScreenSize.x;
-                float scaleY = currentScreenSize.y / initialScreenSize.y;
-                float scaledMouseX = AMotionEvent_getX(input_event, event_pointer_index) * scaleX;
-                float scaledMouseY = AMotionEvent_getY(input_event, event_pointer_index) * scaleY;
-
-                io.AddMousePosEvent(scaledMouseX, scaledMouseY);
+                io.AddMousePosEvent(AMotionEvent_getX(input_event, event_pointer_index), AMotionEvent_getY(input_event, event_pointer_index));
                 io.AddMouseButtonEvent(0, event_action == AMOTION_EVENT_ACTION_DOWN);
+                if (event_action == AMOTION_EVENT_ACTION_UP) // (#6627, #9474)
+                    io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
             }
             break;
         }
@@ -249,16 +250,8 @@ int32_t ImGui_ImplAndroid_HandleInputEvent(const AInputEvent* input_event)
         }
         case AMOTION_EVENT_ACTION_HOVER_MOVE: // Hovering: Tool moves while NOT pressed (such as a physical mouse)
         case AMOTION_EVENT_ACTION_MOVE:       // Touch pointer moves while DOWN
-        {
-            ImVec2 currentScreenSize = io.DisplaySize;
-            float scaleX = currentScreenSize.x / initialScreenSize.x;
-            float scaleY = currentScreenSize.y / initialScreenSize.y;
-            float scaledMouseX = AMotionEvent_getX(input_event, event_pointer_index) * scaleX;
-            float scaledMouseY = AMotionEvent_getY(input_event, event_pointer_index) * scaleY;
-
-            io.AddMousePosEvent(scaledMouseX, scaledMouseY);
+            io.AddMousePosEvent(AMotionEvent_getX(input_event, event_pointer_index), AMotionEvent_getY(input_event, event_pointer_index));
             break;
-        }
         case AMOTION_EVENT_ACTION_SCROLL:
             io.AddMouseWheelEvent(AMotionEvent_getAxisValue(input_event, AMOTION_EVENT_AXIS_HSCROLL, event_pointer_index), AMotionEvent_getAxisValue(input_event, AMOTION_EVENT_AXIS_VSCROLL, event_pointer_index));
             break;
@@ -276,6 +269,8 @@ int32_t ImGui_ImplAndroid_HandleInputEvent(const AInputEvent* input_event)
 
 bool ImGui_ImplAndroid_Init(ANativeWindow* window)
 {
+    IMGUI_CHECKVERSION();
+
     g_Window = window;
     g_Time = 0.0;
 
@@ -292,17 +287,24 @@ void ImGui_ImplAndroid_Shutdown()
     io.BackendPlatformName = nullptr;
 }
 
-void ImGui_ImplAndroid_NewFrame(int window_width, int window_height)
+void ImGui_ImplAndroid_NewFrame()
 {
     ImGuiIO& io = ImGui::GetIO();
 
-    // Setup display size (every frame to accommodate for window resizing)
-    int display_width = window_width;
-    int display_height = window_height;
+    // LOCAL-MOD: when no ANativeWindow is available (injected/hook scenario, g_Window == nullptr)
+    // keep io.DisplaySize as set by the caller instead of querying the window.
+    if (g_Window != nullptr)
+    {
+        // Setup display size (every frame to accommodate for window resizing)
+        int32_t window_width = ANativeWindow_getWidth(g_Window);
+        int32_t window_height = ANativeWindow_getHeight(g_Window);
+        int display_width = window_width;
+        int display_height = window_height;
 
-    io.DisplaySize = ImVec2((float)window_width, (float)window_height);
-    if (window_width > 0 && window_height > 0)
-        io.DisplayFramebufferScale = ImVec2((float)display_width / window_width, (float)display_height / window_height);
+        io.DisplaySize = ImVec2((float)window_width, (float)window_height);
+        if (window_width > 0 && window_height > 0)
+            io.DisplayFramebufferScale = ImVec2((float)display_width / window_width, (float)display_height / window_height);
+    }
 
     // Setup time step
     struct timespec current_timespec;

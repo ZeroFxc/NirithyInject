@@ -24,8 +24,9 @@ set(IMGUI_SOURCES
 # Add the library target
 add_library(${PROJECT_NAME} STATIC ${IMGUI_SOURCES})
 
-# Include directories
-target_include_directories(${PROJECT_NAME} PUBLIC imgui)
+# Include directories (use the imgui source root so the official backends'
+# '#include "imgui.h"' resolves correctly)
+target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(${PROJECT_NAME} PRIVATE "-w")
 
 # Optionally, if you want to link OpenGL, uncomment and adjust the following lines

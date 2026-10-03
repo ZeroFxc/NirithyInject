@@ -82,10 +82,8 @@ namespace logger
 
         static float fontScale = 0.5f;
         ImGui::SliderFloat("Scale", &fontScale, 0.1f, 1.f, "%.2f");
-        static auto font = ImGui::GetFont();
-        static auto origScale = font->Scale;
-        font->Scale = fontScale;
-        ImGui::PushFont(font);
+        // 1.92+: ImFont::Scale is obsolete; scale via PushFont size instead
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * fontScale);
         if (ImGui::BeginChild("scrolling", ImVec2(0, 0), false, WordWrap ? 0 : ImGuiWindowFlags_HorizontalScrollbar))
         {
             if (clear)
@@ -167,7 +165,6 @@ namespace logger
             if (AutoScroll && ImGui::GetScrollY() + 10.f >= ImGui::GetScrollMaxY())
                 ImGui::SetScrollHereY(1.0f);
         }
-        font->Scale = origScale;
         ImGui::EndChild();
         ImGui::PopFont();
         // ImGui::End();
