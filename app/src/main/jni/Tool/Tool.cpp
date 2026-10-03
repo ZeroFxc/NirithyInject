@@ -160,7 +160,10 @@ namespace Tool
     {
         auto &tab = OpenNewTab();
         tab.filter = klass->getFullName();
+        // 标签页标题显示类短名（去掉命名空间前缀）
+        tab.title = Util::extractClassNameFromTypename(klass->getFullName().c_str());
         tab.selectedImage = klass->getImage();
+        tab.setOpenedTab = true;
         tab.FilterClasses(tab.filter);
         return tab;
     }

@@ -1496,7 +1496,11 @@ void ClassesTab::Draw(int index, bool closeable)
 {
     static ImGuiIO &io = ImGui::GetIO();
     char tabLabel[256];
-    if (filter.empty())
+    if (!title.empty())
+    {
+        snprintf(tabLabel, sizeof(tabLabel), "%s", title.c_str());
+    }
+    else if (filter.empty())
     {
         sprintf(tabLabel, "Classes");
         if (index >= 0)

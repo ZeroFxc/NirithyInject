@@ -101,6 +101,7 @@ struct ClassesTab
     void HookerCollectedFieldEditor(Il2CppClass *klass);
 
     std::string filter = "";
+    std::string title = ""; // 标签页标题（类短名），空时回退到 filter
     int selectedImageIndex = -1;
     bool traceState = false;
 
