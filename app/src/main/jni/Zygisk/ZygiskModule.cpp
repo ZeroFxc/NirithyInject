@@ -63,7 +63,11 @@ class Il2cppToolModule : public zygisk::ModuleBase
         {
             // No WebUI selection yet — do not inject into every app.
             g_enableHack = false;
-            LOGI("il2cpp_tool: empty target list, skip %s", pkg.c_str());
+            // 区分「无配置文件」与「文件存在但不可读」，便于排查时序/权限问题
+            if (Targets::ConfigExists())
+                LOGI("il2cpp_tool: target list unreadable, skip %s", pkg.c_str());
+            else
+                LOGI("il2cpp_tool: no target list, skip %s", pkg.c_str());
         }
         else
         {
@@ -75,7 +79,8 @@ class Il2cppToolModule : public zygisk::ModuleBase
                     break;
                 }
             }
-            LOGI("il2cpp_tool: %s %s", pkg.c_str(), g_enableHack ? "INJECT" : "skip");
+            LOGI("il2cpp_tool: %zu targets loaded, %s %s", g_targets.size(), pkg.c_str(),
+                 g_enableHack ? "INJECT" : "skip");
         }
 
         if (!g_enableHack && api_)

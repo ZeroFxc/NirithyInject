@@ -1,5 +1,6 @@
 #include "Targets.h"
 #include "Includes/Logger.h"
+#include <algorithm>
 #include <fstream>
 #include <unistd.h>
 
@@ -14,31 +15,58 @@ namespace Targets
         return s.substr(a, b - a + 1);
     }
 
-    std::vector<std::string> Load()
+    // 目标列表的候选路径：WebUI 写入路径 + 模块目录回退路径
+    static std::vector<std::string> configPaths()
     {
-        std::vector<std::string> out;
-        std::ifstream in(kConfigPath);
+        return {kConfigPath, std::string(kModuleDir) + "/targets.txt"};
+    }
+
+    // 读取单个文件中的包名，按出现顺序追加并去重
+    // path: 文件路径；out: 结果集合（同时作为去重依据）
+    // 返回 true 表示文件成功打开
+    static bool readFile(const std::string &path, std::vector<std::string> &out)
+    {
+        std::ifstream in(path);
         if (!in.is_open())
-        {
-            // Fallback next to the module (KernelSU webui may write here instead)
-            in.open(std::string(kModuleDir) + "/targets.txt");
-        }
-        if (!in.is_open())
-            return out;
+            return false;
+
         std::string line;
         while (std::getline(in, line))
         {
             line = trim(line);
             if (line.empty() || line[0] == '#')
                 continue;
-            out.push_back(line);
+            if (std::find(out.begin(), out.end(), line) == out.end())
+                out.push_back(line);
+        }
+        return true;
+    }
+
+    std::vector<std::string> Load()
+    {
+        std::vector<std::string> out;
+        // 文件可能在模块挂载/WebUI 写入后稍晚才可见，最多重试 3 次；两处路径合并去重
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            out.clear();
+            for (const auto &path : configPaths())
+                readFile(path, out);
+            if (!out.empty())
+                break;
+            usleep(50 * 1000);
         }
         return out;
     }
 
     bool ConfigExists()
     {
-        return access(kConfigPath, F_OK) == 0 || access((std::string(kModuleDir) + "/targets.txt").c_str(), F_OK) == 0;
+        // 仅判断可读性：文件存在但无读权限时与不存在区分开，便于上层排查权限问题
+        for (const auto &path : configPaths())
+        {
+            if (access(path.c_str(), R_OK) == 0)
+                return true;
+        }
+        return false;
     }
 
     bool Contains(const std::string &package)
