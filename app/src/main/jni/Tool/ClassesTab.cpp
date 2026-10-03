@@ -871,6 +871,26 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
         }
         if (ImGui::BeginPopup("ParamObjectSelector"))
         {
+            // 手动输入地址（通用：引用类型/值类型都可直接指定对象地址）
+            if (ImGui::Button(Lang::T("手动输入地址", "Enter Address Manually")))
+            {
+                Keyboard::Open([&param](const std::string &text)
+                               {
+                                   try
+                                   {
+                                       unsigned long long addr = std::stoull(text, nullptr, 0);
+                                       param.object = reinterpret_cast<Il2CppObject *>(addr);
+                                       char objStr[24]{0};
+                                       snprintf(objStr, sizeof(objStr), "%p", param.object);
+                                       param.value = objStr;
+                                   }
+                                   catch (...)
+                                   {
+                                   }
+                               });
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::Separator();
             if (type->isValueType() && !type->isEnum())
             {
                 // 值类型（结构体）不能作为 GC 对象收集，这里提供零初始化实例创建
