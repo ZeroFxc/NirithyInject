@@ -196,7 +196,6 @@ namespace Frida
                 //     }
                 //     idx++;
                 // }
-            }
 
             auto name = hookerData->method->getName();
             char buffer[256]{0};

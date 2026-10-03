@@ -79,13 +79,13 @@ ClassesTab::MethodList &ClassesTab::buildMethodMap(Il2CppClass *klass)
     {
         methodList.clear();
         auto methods = klass->getMethods();
-        LOGD("Rebuilding %s | %lu methods", klass->getName(), methods.size());
+        LOGD("Rebuilding %s | %zu methods", klass->getName(), methods.size());
         for (auto method : methods)
         {
             auto paramsInfo = method->getParamsInfo();
             methodList.push_back({method, paramsInfo});
         }
-        LOGD("Rebuilt %lu methods", methodList.size());
+        LOGD("Rebuilt %zu methods", methodList.size());
         lastClass = klass;
     }
     return methodList;
@@ -2206,12 +2206,6 @@ void ClassesTab::ImGuiJson(Il2CppObject *rootObj)
         poper.Update();
         ImGui::EndChild();
         ImGui::EndTable();
-    }
-}
-
-                ImGui::PopStyleColor();
-            }
-        }
     }
 }
 

@@ -1531,7 +1531,7 @@ namespace Il2cpp
                     }
                 }
             }
-            LOGD("Found %lu objects", objects.size());
+            LOGD("Found %zu objects", objects.size());
             return objects;
         }
         // is this function actually work?
@@ -1578,7 +1578,8 @@ namespace Il2cpp
                 }
 
                 auto indent = repeatString("│ ", depth++);
-                LOGD("%lu %s%s%s::%s", (uintptr_t)data->m->methodPointer - il2cpp_base, indent.c_str(), "┌─",
+                LOGD("%llu %s%s%s::%s", (unsigned long long)((uintptr_t)data->m->methodPointer - il2cpp_base), indent.c_str(),
+                     "┌─",
                      m->getClass()->getFullName().c_str(), m->getName());
             }
         }
@@ -1589,7 +1590,7 @@ namespace Il2cpp
             if (data->skip)
                 return;
             auto indent = repeatString("│ ", --depth);
-            LOGD("%lu %s%s%s::%s", (uintptr_t)data->m->methodPointer - il2cpp_base, indent.c_str(), "└─",
+            LOGD("%llu %s%s%s::%s", (unsigned long long)((uintptr_t)data->m->methodPointer - il2cpp_base), indent.c_str(), "└─",
                  data->m->getClass()->getFullName().c_str(), data->m->getName());
             // TODO: Improve this
             //  auto returnType = data->m->getReturnType()->getName();
