@@ -1,6 +1,7 @@
 #include "ClassesTab.h"
 #include "Il2cpp/Il2cpp.h"
 #include "Il2cpp/il2cpp-tabledefs.h"
+#include "Tool/Clipboard.h"
 #include "Tool/Keyboard.h"
 #include "Tool/Lang.h"
 #include "Tool/Patcher.h"
@@ -1154,6 +1155,19 @@ void ClassesTab::PatcherView(Il2CppClass *klass, MethodInfo *method, const Metho
 
     auto &o = oMap[method];
     auto type = method->getReturnType();
+
+    // 复制已修补字节：读取方法入口当前写入的字节并转为十六进制串，写入系统剪贴板
+    auto copyPatchedBytes = [method, &o]()
+    {
+        if (o.bytes.empty())
+            return;
+        std::string hex = KittyMemory::read2HexStr(method->methodPointer, o.bytes.size());
+        if (Clipboard::Set(hex))
+            LOGD("Copied patched bytes: %s", hex.c_str());
+        else
+            LOGE("Failed to copy patched bytes for %s", method->getName());
+    };
+
     if (strcmp(type->getName(), "System.Int16") == 0 || strcmp(type->getName(), "System.Int32") == 0 ||
         strcmp(type->getName(), "System.Int64") == 0 || strcmp(type->getName(), "System.UInt16") == 0 ||
         strcmp(type->getName(), "System.UInt32") == 0 || strcmp(type->getName(), "System.UInt64") == 0 ||
@@ -1168,6 +1182,9 @@ void ClassesTab::PatcherView(Il2CppClass *klass, MethodInfo *method, const Metho
         {
             ImGui::SameLine();
             ImGui::Text("-> %s", o.text.c_str());
+            ImGui::SameLine();
+            if (ImGui::Button(Lang::T("复制已修补字节", "Copy patched bytes")))
+                copyPatchedBytes();
         }
     }
     else if (strcmp(type->getName(), "System.Void") == 0)
@@ -1189,6 +1206,9 @@ void ClassesTab::PatcherView(Il2CppClass *klass, MethodInfo *method, const Metho
                 o.bytes.clear();
                 o.text.clear();
             }
+            ImGui::SameLine();
+            if (ImGui::Button(Lang::T("复制已修补字节", "Copy patched bytes")))
+                copyPatchedBytes();
         }
     }
     else
