@@ -923,6 +923,7 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
         }
         ImGui::PopID();
     }
+    ImGui::Spacing();
     ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(30, 200, 25, 128));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(30, 200, 25, 255));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(30, 200, 25, 255));
@@ -1857,7 +1858,7 @@ bool ClassesTab::MethodViewer(Il2CppClass *klass, MethodInfo *method, const Meth
             Util::prependStringToBuffer(treeLabel, "[P] ");
     }
 
-    bool open = ImGui::TreeNodeEx(treeLabel, ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth);
+    bool open = ImGui::TreeNodeEx(treeLabel, ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanFullWidth);
     if (pushedColor)
         ImGui::PopStyleColor(pushedColor);
     if (open)
@@ -2378,7 +2379,7 @@ void ClassesTab::Draw(int index, bool closeable)
                             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(222, 222, 222, 255));
                             pushedColor++;
                         }
-                        ImGuiTreeNodeFlags nodeFlags = ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap;
+                        ImGuiTreeNodeFlags nodeFlags = ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_AllowOverlap;
                         if (selectedClass == klass)
                             nodeFlags |= ImGuiTreeNodeFlags_Selected;
                         bool collapsingHeader = ImGui::TreeNodeEx(klass->getFullName().c_str(), nodeFlags);
