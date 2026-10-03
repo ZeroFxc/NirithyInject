@@ -173,6 +173,36 @@ namespace Tool
         return tab;
     }
 
+    bool IsClassPinned(Il2CppClass *klass)
+    {
+        if (!klass)
+            return false;
+        std::string fullName = klass->getFullName();
+        // 跳过第一个默认 tab，只检查用户主动创建的子 tab
+        for (size_t i = 1; i < classesTabs.size(); i++)
+        {
+            if (classesTabs[i].filter == fullName)
+                return true;
+        }
+        return false;
+    }
+
+    void ToggleClassTab(Il2CppClass *klass)
+    {
+        if (!klass)
+            return;
+        std::string fullName = klass->getFullName();
+        for (size_t i = 1; i < classesTabs.size(); i++)
+        {
+            if (classesTabs[i].filter == fullName)
+            {
+                classesTabs[i].opened = false;
+                return;
+            }
+        }
+        OpenNewTabFromClass(klass);
+    }
+
     void Init(Il2CppImage *image, std::vector<Il2CppImage *> images)
     {
         ConfigInit();

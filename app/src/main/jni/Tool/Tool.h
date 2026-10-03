@@ -38,4 +38,6 @@ namespace Tool
     ClassesTab &GetFirstTab(); // TODO: maybe just return classesTabs
     ClassesTab &OpenNewTab();
     ClassesTab &OpenNewTabFromClass(Il2CppClass *klass);
+    bool IsClassPinned(Il2CppClass *klass);
+    void ToggleClassTab(Il2CppClass *klass);
 } // namespace Tool

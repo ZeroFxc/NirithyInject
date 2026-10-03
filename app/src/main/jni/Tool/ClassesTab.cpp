@@ -2352,12 +2352,16 @@ void ClassesTab::Draw(int index, bool closeable)
                         ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(222, 222, 222, 255));
                         pushedColor++;
                     }
-                    ImGuiTreeNodeFlags nodeFlags = ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth;
+                    ImGuiTreeNodeFlags nodeFlags = ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap;
                     if (selectedClass == klass)
                         nodeFlags |= ImGuiTreeNodeFlags_Selected;
                     bool collapsingHeader = ImGui::TreeNodeEx(klass->getFullName().c_str(), nodeFlags);
                     if (ImGui::IsItemClicked())
                         selectedClass = klass;
+                    // 钉入/移除顶部子标签卡按钮（AllowOverlap 允许按钮重叠在节点行尾）
+                    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 28);
+                    if (ImGui::SmallButton(Tool::IsClassPinned(klass) ? "x" : "+"))
+                        Tool::ToggleClassTab(klass);
                     if (filterByMethod && ImGui::IsItemHeld(0.7f))
                     {
                         auto name = Util::extractClassNameFromTypename(klass->getFullName().c_str());
