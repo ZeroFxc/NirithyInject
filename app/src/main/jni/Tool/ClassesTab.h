@@ -138,6 +138,8 @@ struct ClassesTab
     char searchBuf[256] = {0};
     // 对象地址输入缓冲（每个标签页独立，避免 static 共享导致串页）
     char addressBuffer[64] = {0};
+    // 筛选区域高度（可拖拽分割线调整，持久化）
+    float filterAreaHeight = 140.0f;
     int selectedImageIndex = -1;
     bool traceState = false;
 

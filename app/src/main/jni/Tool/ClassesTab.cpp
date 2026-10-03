@@ -2147,7 +2147,6 @@ void ClassesTab::Draw(int index, bool closeable)
     {
         setOpenedTab = false;
         // 筛选区域：可调整高度，下方与类列表之间用可拖拽分割线分隔
-        static float filterAreaHeight = 140.0f;
         ImGui::BeginChild("##filterArea", ImVec2(0, filterAreaHeight));
         ImGui::BeginDisabled(includeAllImages);
         ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(-1, io.DisplaySize.y / 1.5f));
@@ -2382,6 +2381,8 @@ void ClassesTab::Draw(int index, bool closeable)
             if (filterAreaHeight < 80) filterAreaHeight = 80;
             if (filterAreaHeight > 500) filterAreaHeight = 500;
         }
+        if (ImGui::IsItemDeactivated())
+            Tool::ConfigSave();
         if (ImGui::IsItemHovered())
             ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
         if (inspectClass)
@@ -3329,6 +3330,7 @@ void to_json(nlohmann::ordered_json &j, const ClassesTab &p)
     j["exactMatch"] = p.exactMatch;
     j["alwaysRefreshInspector"] = p.alwaysRefreshInspector;
     j["showMethods"] = p.showMethods;
+    j["filterAreaHeight"] = p.filterAreaHeight;
     j["selectedImage"] = p.selectedImage ? p.selectedImage->getName() : "";
 }
 
@@ -3353,6 +3355,8 @@ void from_json(const nlohmann::ordered_json &j, ClassesTab &p)
         j.at("alwaysRefreshInspector").get_to(p.alwaysRefreshInspector);
     if (j.contains("showMethods"))
         j.at("showMethods").get_to(p.showMethods);
+    if (j.contains("filterAreaHeight"))
+        j.at("filterAreaHeight").get_to(p.filterAreaHeight);
     std::string selectedImage = j.at("selectedImage").get<std::string>();
     if (selectedImage.ends_with(".dll"))
     {
