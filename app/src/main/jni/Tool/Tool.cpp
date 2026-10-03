@@ -243,22 +243,77 @@ namespace Tool
     void Dumper()
     {
         static std::string currentDump = "";
+        static bool dumping = false;          // 是否正在转储
+        static bool dumped = false;           // 是否已有完成的转储结果
+        static std::future<void> dumpFuture;  // 后台转储任务
+        static char outFile[256]{0};          // 输出文件路径
+        // 待转储的程序集（DLL）名称集合：为空时转储全部
+        static std::set<std::string> selectedAssemblies;
+
         if (!currentDump.empty())
         {
             ImGui::Text("Dumping %s", currentDump.c_str());
         }
 
-        static bool dumping = false;
-
         // 自动转储开关：开启后进入该页面即自动开始一次转储
         if (ImGui::Checkbox(Lang::T("自动转储", "Auto dump"), &autoDump))
             SaveGlobalConfig();
+
+        // 程序集（DLL）选择：可单选或多选，未勾选任何项时转储全部
+        ImGui::Separator();
+        ImGui::Text("%s", Lang::T("选择要转储的程序集（可多选）", "Select assemblies to dump (multi-select)"));
+        if (ImGui::Button(Lang::T("全选", "Select all")))
+        {
+            for (auto image : g_Images)
+                selectedAssemblies.insert(image->getName());
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(Lang::T("清空", "Clear")))
+            selectedAssemblies.clear();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s %zu", Lang::T("已选:", "Selected:"), selectedAssemblies.size());
+
+        ImGui::BeginChild("##AssemblyList", ImVec2(0, 180), true);
+        for (auto image : g_Images)
+        {
+            const char *name = image->getName();
+            bool checked = selectedAssemblies.count(name) > 0;
+            if (ImGui::Checkbox(name, &checked))
+            {
+                if (checked)
+                    selectedAssemblies.insert(name);
+                else
+                    selectedAssemblies.erase(name);
+            }
+        }
+        ImGui::EndChild();
+        if (selectedAssemblies.empty())
+            ImGui::TextDisabled("%s", Lang::T("未选择程序集，将转储全部", "No assembly selected, dumping all"));
+
+        // 启动一次转储：快照当前程序集选择，避免转储期间用户改动选择
+        auto startDump = [&]()
+        {
+            snprintf(outFile, sizeof(outFile), "%s/%s_%s.cs", Il2cpp::getDataPath().c_str(),
+                     Il2cpp::getPackageName().c_str(), Il2cpp::getGameVersion().c_str());
+            std::set<std::string> selection = selectedAssemblies;
+            currentDump = "Starting...";
+            dumped = false;
+            dumping = true;
+            dumpFuture = std::async(std::launch::async,
+                                    [selection]
+                                    {
+                                        il2cpp_dump(outFile,
+                                                    [](const char *name, int i, int size)
+                                                    { currentDump = name; },
+                                                    selection);
+                                    });
+        };
 
         static bool autoStarted = false;
         if (autoDump && !autoStarted && !dumping)
         {
             autoStarted = true;
-            dumping = true;
+            startDump();
         }
 
         if (ImGui::Button("DUMP"))
@@ -267,29 +322,23 @@ namespace Tool
             {
                 currentDump = "are in progress or finished!";
             }
-            dumping = true;
-        }
-        if (dumping)
-        {
-
-            static char outFile[256];
-            sprintf(outFile, "%s/%s_%s.cs", Il2cpp::getDataPath().c_str(), Il2cpp::getPackageName().c_str(),
-                    Il2cpp::getGameVersion().c_str());
-            static bool dumped = false;
-            static std::future<void> dump =
-                std::async(std::launch::async,
-                           [] { il2cpp_dump(outFile, [](const char *name, int i, int size) { currentDump = name; }); });
-            if (!dumped && dump.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+            else
             {
-                currentDump = "Done";
-                dumped = true;
+                startDump();
             }
-            if (dumped)
+        }
+        if (dumping && dumpFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            currentDump = "Done";
+            dumping = false;
+            dumped = true;
+        }
+        if (dumped)
+        {
+            ImGui::SameLine();
+            if (ImGui::Button("Copy path"))
             {
-                if (ImGui::Button("Copy path"))
-                {
-                    Keyboard::Open(outFile, nullptr);
-                }
+                Keyboard::Open(outFile, nullptr);
             }
         }
     }

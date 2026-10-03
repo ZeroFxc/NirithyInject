@@ -453,7 +453,8 @@ std::string dump_type(Il2CppType *type)
     return outPut.str();
 }
 
-void il2cpp_dump(const char *outDir, const std::function<void(const char *, int, int)> &progress)
+void il2cpp_dump(const char *outDir, const std::function<void(const char *, int, int)> &progress,
+                 const std::set<std::string> &selectedImages)
 {
     LOGI("dumping...");
     size_t size;
@@ -465,6 +466,22 @@ void il2cpp_dump(const char *outDir, const std::function<void(const char *, int,
     //     auto image = il2cpp_assembly_get_image(assemblies[i]);
     //     imageOutput << "// Image " << i << ": " << il2cpp_image_get_name(image) << "\n";
     // }
+    // 程序集过滤：非空时只转储命中的程序集
+    auto isSelected = [&selectedImages](const char *name) -> bool
+    {
+        if (selectedImages.empty())
+            return true;
+        return name && selectedImages.find(name) != selectedImages.end();
+    };
+    // 已处理（选中）的程序集数量，用于进度显示
+    int selectedIndex = 0;
+    int selectedTotal = 0;
+    for (int i = 0; i < size; ++i)
+    {
+        auto image = il2cpp_assembly_get_image(assemblies[i]);
+        if (isSelected(il2cpp_image_get_name(image)))
+            selectedTotal++;
+    }
     std::vector<std::string> outPuts;
     if (il2cpp_image_get_class)
     {
@@ -475,7 +492,9 @@ void il2cpp_dump(const char *outDir, const std::function<void(const char *, int,
             auto image = il2cpp_assembly_get_image(assemblies[i]);
             std::stringstream imageStr;
             auto imageName = il2cpp_image_get_name(image);
-            progress(imageName, i, size);
+            if (!isSelected(imageName))
+                continue;
+            progress(imageName, selectedIndex++, selectedTotal);
             imageStr << "\n// " << imageName << "\n";
             auto classCount = il2cpp_image_get_class_count(image);
             for (int j = 0; j < classCount; ++j)
@@ -520,8 +539,11 @@ void il2cpp_dump(const char *outDir, const std::function<void(const char *, int,
         for (int i = 0; i < size; ++i)
         {
             auto image = il2cpp_assembly_get_image(assemblies[i]);
-            std::stringstream imageStr;
             auto image_name = il2cpp_image_get_name(image);
+            if (!isSelected(image_name))
+                continue;
+            progress(image_name, selectedIndex++, selectedTotal);
+            std::stringstream imageStr;
             imageStr << "\n// " << image_name;
             // LOGD("image name : %s", image->name);
             auto imageName = std::string(image_name);

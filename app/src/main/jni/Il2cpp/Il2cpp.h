@@ -6,8 +6,13 @@
 #define ZYGISK_IL2CPPDUMPER_IL2CPP_DUMP_H
 
 #include "il2cpp-class.h"
+#include <set>
+#include <string>
 
-void il2cpp_dump(const char *outDir, const std::function<void(const char *, int, int)> &progress);
+// 转储 IL2CPP 类型定义到 outDir 指定的 .cs 文件。
+// selectedImages 为空时转储全部程序集；否则只转储名称命中的程序集（支持单个或多个）。
+void il2cpp_dump(const char *outDir, const std::function<void(const char *, int, int)> &progress,
+                 const std::set<std::string> &selectedImages = {});
 
 namespace Il2cpp
 {
