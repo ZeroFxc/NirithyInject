@@ -2132,6 +2132,9 @@ void ClassesTab::Draw(int index, bool closeable)
                                                setOpenedTab ? ImGuiTabItemFlags_SetSelected : 0)))
     {
         setOpenedTab = false;
+        // 筛选区域：可调整高度，下方与类列表之间用可拖拽分割线分隔
+        static float filterAreaHeight = 140.0f;
+        ImGui::BeginChild("##filterArea", ImVec2(0, filterAreaHeight));
         ImGui::BeginDisabled(includeAllImages);
         ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(-1, io.DisplaySize.y / 1.5f));
         if (ImGui::BeginCombo("Image##ImageSelector", selectedImage->getName()))
@@ -2356,7 +2359,17 @@ void ClassesTab::Draw(int index, bool closeable)
             }
             ImGui::EndPopup();
         }
-        ImGui::Separator();
+        ImGui::EndChild();
+        // 可拖拽分割线：上下拖动调整筛选区域高度
+        ImGui::InvisibleButton("##filterSplitter", ImVec2(-1, 6));
+        if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0))
+        {
+            filterAreaHeight += ImGui::GetIO().MouseDelta.y;
+            if (filterAreaHeight < 80) filterAreaHeight = 80;
+            if (filterAreaHeight > 500) filterAreaHeight = 500;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
         if (inspectClass)
         {
             // 对象检查模式：显示该类的已收集对象选择器，选中后在对象详情 tab 查看字段
