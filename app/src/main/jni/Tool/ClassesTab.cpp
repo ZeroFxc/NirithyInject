@@ -525,7 +525,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
     // ImGui::Separator();
 
     {
-        if (ImGui::CollapsingHeader("Saved Objects"))
+        if (ImGui::CollapsingHeader(Lang::tr("cls.savedObjects")))
         {
             auto &objects = savedSet[klass];
             ImGui::SetNextWindowSizeConstraints(ImVec2(-1, 0), ImVec2(-1, height / 3));
@@ -593,7 +593,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
     // ImGui::Separator();
 
     {
-        if (ImGui::CollapsingHeader("Collected Objects"))
+        if (ImGui::CollapsingHeader(Lang::tr("cls.collectedObjects")))
         {
             auto &objects = HookerData::collectSet[klass];
             ImGui::SetNextWindowSizeConstraints(ImVec2(-1, 0), ImVec2(-1, height / 3));
@@ -668,7 +668,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
     // ImGui::EndChild();
 
     {
-        if (ImGui::CollapsingHeader("Created Objects"))
+        if (ImGui::CollapsingHeader(Lang::tr("cls.createdObjects")))
         {
             auto &objects = newObjectMap[klass];
             ImGui::SetNextWindowSizeConstraints(ImVec2(-1, 0), ImVec2(-1, height / 3));
@@ -1726,7 +1726,7 @@ void ClassesTab::HookerView(Il2CppClass *klass, MethodInfo *method, const Method
     {
         sprintf(label, "Restore");
         auto value = it->second.hitCount;
-        ImGui::Text("Hit Count %d", value);
+        ImGui::Text(Lang::tr("cls.hitCount"), value);
         ImGui::Separator();
     }
     if (ImGui::Button(label))
@@ -1777,7 +1777,7 @@ void ClassesTab::HookerView(Il2CppClass *klass, MethodInfo *method, const Method
         auto &backtraced = it->second.backtraced;
         if (!it->second.backtracing)
         {
-            if (ImGui::Button("Backtrace"))
+            if (ImGui::Button(Lang::tr("cls.backtrace")))
             {
                 it->second.backtracing = true;
             }
@@ -2047,7 +2047,7 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
         if (ImGui::BeginPopup("ConfirmPopup"))
         {
             ImGui::TextColored(ImVec4(0.8, 0.8, 0, 1), "WARNING: There's a high-risk of crash");
-            if (ImGui::Button("Continue?"))
+            if (ImGui::Button(Lang::tr("cls.continueQ")))
             {
                 state = true;
                 std::thread hookThread(
@@ -2155,7 +2155,7 @@ void ClassesTab::Draw(int index, bool closeable)
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
-        if (ImGui::Checkbox("All", &includeAllImages))
+        if (ImGui::Checkbox(Lang::tr("cls.all"), &includeAllImages))
         {
             FilterClasses(filter);
         }
@@ -2189,7 +2189,7 @@ void ClassesTab::Draw(int index, bool closeable)
         }
         ImGui::TextDisabled("%zu / %zu", filteredClasses.size(), classes.size());
         ImGui::SameLine();
-        if (ImGui::Button("Filter Options"))
+        if (ImGui::Button(Lang::tr("cls.filterOptions")))
         {
             ImGui::OpenPopup("FilterOptions");
         }
@@ -2251,7 +2251,7 @@ void ClassesTab::Draw(int index, bool closeable)
             if (ImGui::BeginPopup("ConfirmPopup"))
             {
                 ImGui::TextColored(ImVec4(0.8, 0.8, 0, 1), "WARNING: There's a high-risk of crash");
-                if (ImGui::Button("Continue?"))
+                if (ImGui::Button(Lang::tr("cls.continueQ")))
                 {
                     traceState = true;
                     std::thread hookThread(
@@ -2299,7 +2299,7 @@ void ClassesTab::Draw(int index, bool closeable)
             if (processing)
             {
                 ImGui::SameLine();
-                ImGui::Text("Processing %d of %d ...", progress, maxProgress);
+                ImGui::Text(Lang::tr("cls.processing"), progress, maxProgress);
             }
         }
         if (ImGui::BeginPopup("FilterOptions"))
@@ -2655,7 +2655,7 @@ void ClassesTab::ImGuiJson(Il2CppObject *rootObj)
         const nlohmann::ordered_json &current = getJsonObject(rootObj);
         if (current.empty())
         {
-            ImGui::Text("Empty");
+            ImGui::Text("%s", Lang::tr("cls.empty"));
         }
 
         for (auto &[key, value] : current.items())
@@ -2843,7 +2843,7 @@ void ClassesTab::ImGuiJson(Il2CppObject *rootObj)
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
         ImGui::BeginChild("bottom");
-        if (ImGui::Button("Methods", ImVec2(ImGui::GetContentRegionAvail().x - ImGui::GetStyle().FramePadding.x, 0)))
+        if (ImGui::Button(Lang::tr("cls.methods"), ImVec2(ImGui::GetContentRegionAvail().x - ImGui::GetStyle().FramePadding.x, 0)))
         {
             ImGui::OpenPopup("MethodPopup");
         }
@@ -2864,7 +2864,7 @@ void ClassesTab::ImGuiJson(Il2CppObject *rootObj)
             auto &methods = buildMethodMap(currentObj->klass);
             if (methods.empty())
             {
-                ImGui::Text("No methods for class %s", currentObj->klass->getName());
+                ImGui::Text(Lang::tr("cls.noMethods"), currentObj->klass->getName());
             }
             else
             {
@@ -2880,7 +2880,7 @@ void ClassesTab::ImGuiJson(Il2CppObject *rootObj)
             ImGui::EndPopup();
         }
 
-        if (ImGui::Button("Dump to file",
+        if (ImGui::Button(Lang::tr("cls.dumpToFile"),
                           ImVec2(ImGui::GetContentRegionAvail().x - ImGui::GetStyle().FramePadding.x, 0)))
         {
             ImGui::OpenPopup("ProceedPopUp");
@@ -2889,12 +2889,12 @@ void ClassesTab::ImGuiJson(Il2CppObject *rootObj)
         {
             char fileName[256]{0};
             snprintf(fileName, sizeof(fileName), "dump_%s (%p).json", currentObj->klass->getName(), currentObj);
-            ImGui::Text("File will be saved as %s", fileName);
+            ImGui::Text(Lang::tr("cls.fileWillBeSaved"), fileName);
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 255, 50, 255));
-            ImGui::Text("Note: This may take a while depending on the size of the object");
-            ImGui::Text("Do not touch the screen if it's freezing!");
+            ImGui::Text("%s", Lang::tr("cls.dumpNote"));
+            ImGui::Text("%s", Lang::tr("cls.doNotTouch"));
             ImGui::PopStyleColor();
-            if (ImGui::Button("Proceed", ImVec2(ImGui::GetContentRegionAvail().x, 0)))
+            if (ImGui::Button(Lang::tr("cls.proceed"), ImVec2(ImGui::GetContentRegionAvail().x, 0)))
             {
                 ChangeMaxListArraySize(9999,
                                        [&object = currentObj]()

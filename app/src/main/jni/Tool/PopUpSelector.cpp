@@ -2,6 +2,7 @@
 #include "Il2cpp/Il2cpp.h"
 #include "Il2cpp/il2cpp-tabledefs.h"
 #include "Includes/Logger.h"
+#include "Tool/Lang.h"
 #include "imgui/imgui.h"
 
 void PopUpSelector::Open(const std::string &type, const std::function<void(const std::string &)> &callback, void *data)
@@ -24,12 +25,12 @@ void PopUpSelector::Update()
     {
         if (ImGui::BeginPopup("BooleanSelector"))
         {
-            if (ImGui::Button("True"))
+            if (ImGui::Button(Lang::tr("common.true")))
             {
                 Do("True");
                 ImGui::CloseCurrentPopup();
             }
-            if (ImGui::Button("False"))
+            if (ImGui::Button(Lang::tr("common.false")))
             {
                 Do("False");
                 ImGui::CloseCurrentPopup();

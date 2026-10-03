@@ -420,7 +420,7 @@ namespace Tool
             return UnityObject->getMethod("IsNativeObjectAlive");
         }();
 
-        ImGui::Text("GameObjects %zu", GameObjects.size());
+        ImGui::Text(Lang::tr("tool.gameObjects"), GameObjects.size());
         // if (ImGui::Button("CC"))
         // {
         // std::vector<Vec3> vecs;
