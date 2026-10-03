@@ -1,8 +1,11 @@
 #include "Targets.h"
 #include "Includes/Logger.h"
 #include <algorithm>
+#include <ctime>
 #include <fstream>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 namespace Targets
 {
@@ -15,15 +18,15 @@ namespace Targets
         return s.substr(a, b - a + 1);
     }
 
-    // 目标列表的候选路径：WebUI 写入路径 + 模块目录回退路径
     static std::vector<std::string> configPaths()
     {
-        return {kConfigPath, std::string(kModuleDir) + "/targets.txt"};
+        return {
+            kConfigPath,
+            std::string(kModuleDir) + "/targets.txt",
+            "/data/adb/modules_update/il2cpp_tool/targets.txt",
+        };
     }
 
-    // 读取单个文件中的包名，按出现顺序追加并去重
-    // path: 文件路径；out: 结果集合（同时作为去重依据）
-    // 返回 true 表示文件成功打开
     static bool readFile(const std::string &path, std::vector<std::string> &out)
     {
         std::ifstream in(path);
@@ -36,16 +39,63 @@ namespace Targets
             line = trim(line);
             if (line.empty() || line[0] == '#')
                 continue;
+            line = NormalizePackage(line);
+            if (line.empty())
+                continue;
             if (std::find(out.begin(), out.end(), line) == out.end())
                 out.push_back(line);
         }
         return true;
     }
 
+    std::string NormalizePackage(std::string pkg)
+    {
+        pkg = trim(pkg);
+        auto colon = pkg.find(':');
+        if (colon != std::string::npos)
+            pkg.resize(colon);
+        return pkg;
+    }
+
+    std::string ParsePackageFromDataDir(const std::string &dir)
+    {
+        if (dir.empty())
+            return "";
+        // /data/user/0/com.foo.bar  or  /data/data/com.foo.bar
+        // /mnt/expand/.../user/0/com.foo.bar
+        int user = 0;
+        char package[256] = {0};
+        if (sscanf(dir.c_str(), "/data/%*[^/]/%d/%255s", &user, package) == 2)
+            return NormalizePackage(package);
+        if (sscanf(dir.c_str(), "/data/%*[^/]/%255s", package) == 1)
+            return NormalizePackage(package);
+        auto pos = dir.rfind('/');
+        if (pos == std::string::npos || pos + 1 >= dir.size())
+            return NormalizePackage(dir);
+        return NormalizePackage(dir.substr(pos + 1));
+    }
+
+    bool Matches(const std::string &package, const std::vector<std::string> &list)
+    {
+        auto pkg = NormalizePackage(package);
+        if (pkg.empty())
+            return false;
+        for (auto t : list)
+        {
+            t = NormalizePackage(t);
+            if (t.empty())
+                continue;
+            if (t == pkg)
+                return true;
+            // "com.foo" matches process "com.foo:unity" (already stripped) and
+            // isolated "com.foo" prefixes only when equal after normalize.
+        }
+        return false;
+    }
+
     std::vector<std::string> Load()
     {
         std::vector<std::string> out;
-        // 文件可能在模块挂载/WebUI 写入后稍晚才可见，最多重试 3 次；两处路径合并去重
         for (int attempt = 0; attempt < 3; attempt++)
         {
             out.clear();
@@ -60,7 +110,6 @@ namespace Targets
 
     bool ConfigExists()
     {
-        // 仅判断可读性：文件存在但无读权限时与不存在区分开，便于上层排查权限问题
         for (const auto &path : configPaths())
         {
             if (access(path.c_str(), R_OK) == 0)
@@ -71,20 +120,11 @@ namespace Targets
 
     bool Contains(const std::string &package)
     {
-        if (package.empty())
-            return false;
-        auto list = Load();
-        for (auto &p : list)
-        {
-            if (p == package)
-                return true;
-        }
-        return false;
+        return Matches(package, Load());
     }
 
     std::string CurrentProcessPackage()
     {
-        // cmdline is NUL-separated; first token is the process name / package.
         std::ifstream in("/proc/self/cmdline", std::ios::binary);
         if (!in.is_open())
             return "";
@@ -94,10 +134,36 @@ namespace Targets
         auto n = data.find('\0');
         if (n != std::string::npos)
             data.resize(n);
-        // Strip trailing :process suffix (e.g. com.game:unity)
-        auto colon = data.find(':');
-        if (colon != std::string::npos)
-            data.resize(colon);
-        return data;
+        return NormalizePackage(data);
+    }
+
+    bool IsZygoteProcess()
+    {
+        auto cmd = CurrentProcessPackage();
+        if (cmd == "zygote" || cmd == "zygote64" || cmd == "zygote32")
+            return true;
+        if (cmd.rfind("app_process", 0) == 0)
+            return true;
+        return false;
+    }
+
+    void AppendInjectLog(const char *line)
+    {
+        if (!line)
+            return;
+        mkdir("/data/adb/il2cpp_tool", 0755);
+        int fd = open(kInjectLog, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd < 0)
+            return;
+        char buf[512];
+        time_t now = time(nullptr);
+        struct tm tm{};
+        localtime_r(&now, &tm);
+        int n = snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d %s\n",
+                         tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+                         tm.tm_hour, tm.tm_min, tm.tm_sec, line);
+        if (n > 0)
+            (void)write(fd, buf, (size_t)n);
+        close(fd);
     }
 } // namespace Targets
