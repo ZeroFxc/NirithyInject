@@ -178,8 +178,8 @@ void hookerHandler(void *address, DobbyRegisterContext *ctx)
         hookerData.time = 1.f;
 
         auto name = hookerData.method->getName();
-        char buffer[128]{0};
-        sprintf(buffer, "%p | %s", hookerData.method->getAbsAddress(), name);
+        char buffer[256]{0};
+        snprintf(buffer, sizeof(buffer), "%p | %s", (void *)hookerData.method->getAbsAddress(), name);
         if (!HookerData::visited.empty())
         {
             // auto &back = HookerData::visited.back();
@@ -410,7 +410,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                         continue;
                     }
                     char buff[64];
-                    sprintf(buff, "%s [%p]", prefix, object);
+                    snprintf(buff, sizeof(buff), "%s [%p]", prefix, object);
                     auto size = ImGui::GetWindowSize();
                     if (ImGui::Button(buff, ImVec2(size.x / 1.5, 0)))
                     {
@@ -447,7 +447,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
     //         for (auto object : savedSet[setKlass])
     //         {
     //             char buff[64];
-    //             sprintf(buff, "%s [%p]", setKlass->getName(), object);
+    //             snprintf(buff, sizeof(buff), "%s [%p]", setKlass->getName(), object);
     //             if (ImGui::Button(buff))
     //             {
     //                 onSelect(object);
@@ -482,7 +482,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                             empty = false;
                             auto object = *it;
                             char buff[64];
-                            sprintf(buff, "%s [%p]", setKlass->getName(), object);
+                            snprintf(buff, sizeof(buff), "%s [%p]", setKlass->getName(), object);
                             auto size = ImGui::GetWindowSize();
                             if (ImGui::Button(buff, ImVec2(size.x / 1.5, 0)))
                             {
@@ -528,7 +528,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
     //     for (auto object : savedSet[klass])
     //     {
     //         char buff[64];
-    //         sprintf(buff, "%s [%p]", klass->getName(), object);
+    //         snprintf(buff, sizeof(buff), "%s [%p]", klass->getName(), object);
     //         if (ImGui::Button(buff))
     //         {
     //             onSelect(object);
@@ -558,7 +558,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                     {
                         auto object = *it;
                         char buff[64];
-                        sprintf(buff, "%s [%p]", klass->getName(), object);
+                        snprintf(buff, sizeof(buff), "%s [%p]", klass->getName(), object);
                         auto size = ImGui::GetWindowSize();
                         if (ImGui::Button(buff, ImVec2(size.x / 1.5, 0)))
                         {
@@ -596,7 +596,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
     //     for (auto object : HookerData::collectSet[klass])
     //     {
     //         char buff[64];
-    //         sprintf(buff, "%s [%p]", klass->getName(), object);
+    //         snprintf(buff, sizeof(buff), "%s [%p]", klass->getName(), object);
     //         if (ImGui::Button(buff))
     //         {
     //             onSelect(object);
@@ -626,7 +626,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                     {
                         auto object = *it;
                         char buff[64];
-                        sprintf(buff, "%s [%p]", klass->getName(), object);
+                        snprintf(buff, sizeof(buff), "%s [%p]", klass->getName(), object);
                         auto size = ImGui::GetWindowSize();
                         if (ImGui::Button(buff, ImVec2(size.x / 1.5, 0)))
                         {
@@ -673,7 +673,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
     // for (auto createObject : newObjectMap[klass])
     // {
     //     char buff[64];
-    //     sprintf(buff, "%s [%p]", prefix, createObject);
+    //     snprintf(buff, sizeof(buff), "%s [%p]", prefix, createObject);
     //     if (ImGui::Button(buff))
     //     {
     //         onSelect(createObject);
@@ -701,7 +701,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                     {
                         auto object = *it;
                         char buff[64];
-                        sprintf(buff, "%s [%p]", prefix, object);
+                        snprintf(buff, sizeof(buff), "%s [%p]", prefix, object);
                         auto size = ImGui::GetWindowSize();
                         if (ImGui::Button(buff, ImVec2(size.x / 1.5, 0)))
                         {
@@ -783,8 +783,8 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
     if (!methodIsStatic && !thiz)
     {
         auto &thisParam = params["this"];
-        char thisLabel[128]{0};
-        sprintf(thisLabel, "%s this", Il2cpp::GetClassType(klass)->getName());
+        char thisLabel[256]{0};
+        snprintf(thisLabel, sizeof(thisLabel), "%s this", Il2cpp::GetClassType(klass)->getName());
         if (!thisParam.value.empty())
         {
             char tmp[256]{0};
@@ -805,8 +805,8 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
                     auto boxed = CreateZeroInitValueType(klass);
                     if (boxed)
                     {
-                        char objStr[16]{0};
-                        sprintf(objStr, "%p", boxed);
+                        char objStr[32]{0};
+                        snprintf(objStr, sizeof(objStr), "%p", (void *)boxed);
                         thisParam.value = objStr;
                         thisParam.object = boxed;
                     }
@@ -819,8 +819,8 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
                     ImGui::GetID("ThisObjectSelector"), klass, "this",
                     [&thisParam](Il2CppObject *object)
                     {
-                        char objStr[16]{0};
-                        sprintf(objStr, "%p", object);
+                        char objStr[32]{0};
+                        snprintf(objStr, sizeof(objStr), "%p", (void *)object);
                         thisParam.value = objStr;
                         thisParam.object = object;
                         ImGui::CloseCurrentPopup();
@@ -834,12 +834,12 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
     {
         auto &[name, type] = paramsInfo[k];
 
-        char paramKey[64]{0};
-        sprintf(paramKey, "%p%s%d", method, name, k);
+        char paramKey[128]{0};
+        snprintf(paramKey, sizeof(paramKey), "%p%s%d", (void *)method, name, k);
         auto &param = params[paramKey];
 
-        char buttonLabel[128]{0};
-        sprintf(buttonLabel, "%s %s", type->getName(), name);
+        char buttonLabel[256]{0};
+        snprintf(buttonLabel, sizeof(buttonLabel), "%s %s", type->getName(), name);
         if (!param.value.empty())
         {
             char tmp[256]{0};
@@ -918,8 +918,8 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
                     auto boxed = CreateZeroInitValueType(type->getClass());
                     if (boxed)
                     {
-                        char objStr[16]{0};
-                        sprintf(objStr, "%p", boxed);
+                        char objStr[32]{0};
+                        snprintf(objStr, sizeof(objStr), "%p", (void *)boxed);
                         param.value = objStr;
                         param.object = boxed;
                     }
@@ -931,8 +931,8 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
                 ImGuiObjectSelector(ImGui::GetID("ParamObjectSelector"), type->getClass(), name,
                                     [&param](Il2CppObject *object)
                                     {
-                                        char objStr[16]{0};
-                                        sprintf(objStr, "%p", object);
+                                        char objStr[32]{0};
+                                        snprintf(objStr, sizeof(objStr), "%p", (void *)object);
                                         param.value = objStr;
                                         param.object = object;
                                         ImGui::CloseCurrentPopup();
@@ -976,8 +976,8 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
         {
             auto &[name, type] = paramsInfo[k];
 
-            char paramKey[64]{0};
-            sprintf(paramKey, "%p%s%d", method, name, k);
+            char paramKey[128]{0};
+            snprintf(paramKey, sizeof(paramKey), "%p%s%d", (void *)method, name, k);
             auto &param = params[paramKey];
             LOGD("%s %s = %s", type->getName(), name, param.value.c_str());
             if (!param.value.empty())
@@ -1185,8 +1185,8 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
                     }
                     else
                     {
-                        char resultStr[16]{0};
-                        sprintf(resultStr, "%p", result);
+                        char resultStr[32]{0};
+                        snprintf(resultStr, sizeof(resultStr), "%p", (void *)result);
                         callResults.at(method).push_back(
                             {resultType->getName(), resultStr, result->klass->getFields(true).size(), result});
                     }
@@ -1835,7 +1835,7 @@ bool ClassesTab::MethodViewer(Il2CppClass *klass, MethodInfo *method, const Meth
     bool methodIsStatic = Il2cpp::GetIsMethodStatic(method);
 
     char treeLabel[512]{0};
-    sprintf(treeLabel, "%s %s(%zu)", method->getReturnType()->getName(), method->getName(), paramsInfo.size());
+    snprintf(treeLabel, sizeof(treeLabel), "%s %s(%zu)", method->getReturnType()->getName(), method->getName(), paramsInfo.size());
     int pushedColor = 0;
     if (methodIsStatic)
     {
@@ -1858,7 +1858,7 @@ bool ClassesTab::MethodViewer(Il2CppClass *klass, MethodInfo *method, const Meth
         {
             int hitCount = hookerMap[method->methodPointer].hitCount;
             char hitLabel[64]{0};
-            sprintf(hitLabel, "Hit Count %d | ", hitCount);
+            snprintf(hitLabel, sizeof(hitLabel), "Hit Count %d | ", hitCount);
             Util::prependStringToBuffer(treeLabel, hitLabel);
         }
         else if (patched)
@@ -1867,7 +1867,7 @@ bool ClassesTab::MethodViewer(Il2CppClass *klass, MethodInfo *method, const Meth
             if (!text.empty())
             {
                 char buff[64]{0};
-                sprintf(buff, "Returns %s | ", text.c_str());
+                snprintf(buff, sizeof(buff), "Returns %s | ", text.c_str());
                 Util::prependStringToBuffer(treeLabel, buff);
             }
         }
@@ -2514,7 +2514,7 @@ void ClassesTab::DrawTabMap()
     {
         auto &[object, visible] = *it;
         char buff[32]{0};
-        sprintf(buff, "[%p]", object);
+        snprintf(buff, sizeof(buff), "[%p]", (void *)object);
 
         if (!visible)
         {
