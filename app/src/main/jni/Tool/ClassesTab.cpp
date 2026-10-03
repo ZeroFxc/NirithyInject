@@ -1,13 +1,18 @@
 #include "ClassesTab.h"
 #include "Il2cpp/Il2cpp.h"
+#include "Il2cpp/il2cpp-tabledefs.h"
 #include "Tool/Keyboard.h"
+#include "Tool/Lang.h"
 #include "Tool/Patcher.h"
+#include "Tool/TextureCache.h"
 #include "Tool/Tool.h"
 #include "Tool/Util.h"
 #include "imgui/imgui.h"
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <algorithm>
+#include <cctype>
 #include "sstream"
 
 extern std::vector<Il2CppImage *> g_Images;
@@ -98,8 +103,11 @@ ClassesTab::ClassesTab()
             break;
         }
     }
-    classes = selectedImage->getClasses();
-    filteredClasses = classes;
+    if (selectedImage)
+    {
+        classes = selectedImage->getClasses();
+        filteredClasses = classes;
+    }
 }
 
 ClassesTab::Paths &ClassesTab::getJsonPaths(Il2CppObject *object)
@@ -125,9 +133,24 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                                      std::function<void(Il2CppObject *)> onSelect, bool canNew)
 {
     ImGui::PushID(id);
+    if (!klass)
+    {
+        ImGui::Text("%s", Lang::T("无效类", "Invalid class"));
+        ImGui::PopID();
+        return;
+    }
+    if (Il2cpp::GetClassIsValueType(klass) || Il2cpp::GetClassIsEnum(klass))
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 180, 80, 255));
+        ImGui::TextWrapped("%s", Lang::T("值类型/枚举不能作为 GC 对象收集，已跳过以免崩溃。",
+                                         "Value types / enums cannot be collected as GC objects (skipped to avoid a crash)."));
+        ImGui::PopStyleColor();
+        ImGui::PopID();
+        return;
+    }
     static std::unordered_map<void *, bool> scanState;
     auto &scanning = scanState[klass];
-    if (ImGui::Button("Find Objects"))
+    if (ImGui::Button(Lang::T("查找对象", "Find Objects")))
     {
         scanning = true;
         std::thread(
@@ -179,6 +202,11 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                 for (auto it = objects.begin(); it != (objects.size() > 100 ? objects.begin() + 100 : objects.end());)
                 {
                     auto object = *it;
+                    if (!object)
+                    {
+                        ++it;
+                        continue;
+                    }
                     char buff[64];
                     sprintf(buff, "%s [%p]", prefix, object);
                     auto size = ImGui::GetWindowSize();
@@ -754,18 +782,39 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
         if (hasParams)
         {
             Il2CppObject *result = nullptr;
-            if (strcmp(method->getName(), ".ctor") != 0 && thisParam &&
+            bool thisIsValue = false;
+            void *valueThis = nullptr;
+            if (strcmp(method->getName(), ".ctor") != 0 && thisParam && thisParam->klass &&
                 Il2cpp::GetClassType(thisParam->klass)->isValueType())
             {
-                auto thizz = Il2cpp::GetUnboxedValue(thisParam);
-                result = Il2cpp::RuntimeInvokeConvertArgs(method, thizz, arrayParams, paramsInfo.size());
+                thisIsValue = true;
+                valueThis = Il2cpp::GetUnboxedValue(thisParam);
+                result = Il2cpp::RuntimeInvokeConvertArgs(method, valueThis, arrayParams, paramsInfo.size());
             }
             else
             {
                 result = Il2cpp::RuntimeInvokeConvertArgs(method, thisParam, arrayParams, paramsInfo.size());
             }
             LOGPTR(result);
-            if (result && strcmp(method->getName(), ".ctor") != 0)
+            auto returnType = method->getReturnType();
+            bool isVoid = returnType && strcmp(returnType->getName(), "System.Void") == 0;
+            if (thisIsValue && thisParam)
+            {
+                // Write the mutated struct back so the inspector shows the real object.
+                Il2cpp::GC::KeepAlive(thisParam);
+                if (tabMap.count(thisParam))
+                    setJsonObject(thisParam);
+                for (auto &[obj, vis] : tabMap)
+                {
+                    if (obj == thisParam)
+                        setJsonObject(obj);
+                }
+            }
+            if (isVoid)
+            {
+                callResults.at(method).push_back({Lang::T("调用完成 (void)", "call completed (void)"), thisParam});
+            }
+            else if (result && strcmp(method->getName(), ".ctor") != 0)
             {
                 auto resultType = Il2cpp::GetClassType(result->klass);
                 if (resultType->isPrimitive())
@@ -838,12 +887,16 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
     if (!callResults.at(method).empty())
     {
         ImGui::Separator();
-        ImGui::Text("Call Results:");
+        ImGui::Text("%s", Lang::T("调用结果:", "Call Results:"));
+        int ri = 0;
         for (auto [callResult, object] : callResults.at(method))
         {
+            ImGui::PushID(ri++);
             if (object)
             {
-                if (ImGui::Button(callResult.c_str()))
+                char btn[512];
+                snprintf(btn, sizeof(btn), "%s###cr%p%d", callResult.c_str(), object, ri);
+                if (ImGui::Button(btn))
                 {
                     setJsonObject(object);
                 }
@@ -852,6 +905,7 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
             {
                 ImGui::Text("%s", callResult.c_str());
             }
+            ImGui::PopID();
             ImGui::Separator();
         }
         // ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(200, 30, 25, 128));
@@ -1230,11 +1284,11 @@ void ClassesTab::HookerView(Il2CppClass *klass, MethodInfo *method, const Method
 
         if (backtraced.empty())
         {
-            ImGui::Text("Method has not been called");
+            ImGui::Text("%s", Lang::T("方法尚未被调用", "Method has not been called"));
         }
         else
         {
-            ImGui::Text("Backtraced methods :");
+            ImGui::Text("%s", Lang::T("回溯方法 :", "Backtraced methods :"));
 
             for (auto &result : backtraced)
             {
@@ -1247,6 +1301,8 @@ void ClassesTab::HookerView(Il2CppClass *klass, MethodInfo *method, const Method
                 ImGui::PopStyleColor();
             }
         }
+        StaticFieldViewer(klass);
+        HookerCollectedFieldEditor(klass);
     }
 }
 
@@ -1312,17 +1368,17 @@ bool ClassesTab::MethodViewer(Il2CppClass *klass, MethodInfo *method, const Meth
 
         if (ImGui::BeginTabBar("##methoder"))
         {
-            if (ImGui::BeginTabItem("Caller"))
+            if (ImGui::BeginTabItem(Lang::T("调用", "Caller")))
             {
                 CallerView(klass, method, paramsInfo, thiz);
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Patcher"))
+            if (ImGui::BeginTabItem(Lang::T("补丁", "Patcher")))
             {
                 PatcherView(klass, method, paramsInfo, thiz);
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Tracer"))
+            if (ImGui::BeginTabItem(Lang::T("跟踪", "Tracer")))
             {
                 HookerView(klass, method, paramsInfo, thiz);
                 ImGui::EndTabItem();
@@ -1349,7 +1405,9 @@ const ClassesTab::MethodParamList &ClassesTab::getCachedParams(MethodInfo *metho
 // static std::unordered_map<Il2CppClass *, bool> states;
 void ClassesTab::ClassViewer(Il2CppClass *klass)
 {
-    if (ImGui::Button("Inspect Objects"))
+    if (!klass)
+        return;
+    if (ImGui::Button(Lang::T("检查对象", "Inspect Objects")))
     {
         ImGui::OpenPopup("DumpPopup");
     }
@@ -1376,7 +1434,12 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
                         continue;
 
                     Tool::ToggleHooker(method, 0);
+                    auto it = std::find(tracedMethods.begin(), tracedMethods.end(), method);
+                    if (it != tracedMethods.end())
+                        tracedMethods.erase(it);
                 }
+                if (tracedMethods.empty())
+                    traceState = false;
             }
         }
         if (ImGui::BeginPopup("ConfirmPopup"))
@@ -1415,6 +1478,8 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
     }
     ImGui::PopID();
     ImGui::Separator();
+
+    StaticFieldViewer(klass);
 
     int j = 0;
     for (auto &[method, paramsInfo] : methodMap[klass])
@@ -1533,10 +1598,13 @@ void ClassesTab::Draw(int index, bool closeable)
                                 maxProgress = tracedMethods.size();
                                 for (auto method : tracedMethods)
                                 {
-                                    Tool::ToggleHooker(method);
+                                    Tool::ToggleHooker(method, 0);
+                                    progress++;
                                 }
                                 LOGD("Restored %zu methods", tracedMethods.size());
                                 tracedMethods.clear();
+                                for (auto &kv : states)
+                                    kv.second = false;
                                 processing = false;
                                 maxProgress = 0;
                                 progress = 0;
@@ -1606,13 +1674,17 @@ void ClassesTab::Draw(int index, bool closeable)
         }
         if (ImGui::BeginPopup("FilterOptions"))
         {
-            if (ImGui::Checkbox("Case-Sensitive", &caseSensitive))
+            if (ImGui::Checkbox(Lang::T("区分大小写", "Case-Sensitive"), &caseSensitive))
             {
                 FilterClasses(filter);
             }
-            ImGui::Text("Filter by ");
+            if (ImGui::Checkbox(Lang::T("精确匹配", "Exact match"), &exactMatch))
+            {
+                FilterClasses(filter);
+            }
+            ImGui::Text("%s", Lang::T("按以下筛选", "Filter by "));
             ImGui::SameLine();
-            if (ImGui::RadioButton("Class", filterByClass == true))
+            if (ImGui::RadioButton(Lang::T("类", "Class"), filterByClass == true))
             {
                 filterByClass = true;
                 filterByMethod = false;
@@ -1620,7 +1692,7 @@ void ClassesTab::Draw(int index, bool closeable)
                 FilterClasses(filter);
             }
             ImGui::SameLine();
-            if (ImGui::RadioButton("Method", filterByMethod == true))
+            if (ImGui::RadioButton(Lang::T("方法", "Method"), filterByMethod == true))
             {
                 filterByClass = false;
                 filterByMethod = true;
@@ -1628,14 +1700,27 @@ void ClassesTab::Draw(int index, bool closeable)
                 FilterClasses(filter);
             }
             ImGui::SameLine();
-            if (ImGui::RadioButton("Field", filterByField == true))
+            if (ImGui::RadioButton(Lang::T("字段", "Field"), filterByField == true))
             {
                 filterByClass = false;
                 filterByMethod = false;
                 filterByField = true;
                 FilterClasses(filter);
             }
-            if (ImGui::Checkbox("Show All Classes", &showAllClasses))
+            if (filterByMethod)
+            {
+                ImGui::Separator();
+                ImGui::Text("%s", Lang::T("方法筛选维度", "Method filter by"));
+                if (ImGui::Checkbox(Lang::T("名称", "Name"), &filterMethodByName))
+                    FilterClasses(filter);
+                ImGui::SameLine();
+                if (ImGui::Checkbox(Lang::T("返回类型", "Return type"), &filterMethodByReturn))
+                    FilterClasses(filter);
+                ImGui::SameLine();
+                if (ImGui::Checkbox(Lang::T("参数", "Parameters"), &filterMethodByParams))
+                    FilterClasses(filter);
+            }
+            if (ImGui::Checkbox(Lang::T("显示全部类", "Show All Classes"), &showAllClasses))
             {
                 FilterClasses(filter);
             }
@@ -1757,6 +1842,14 @@ void ClassesTab::ImGuiJson(Il2CppObject *rootObj)
 
     int indentCounter = 0;
     auto currentObj = dataMap[rootObj].first.first;
+    if (!currentObj || !currentObj->klass)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 80, 80, 255));
+        ImGui::Text("%s", Lang::T("对象无效或已被回收（旧版 Unity 上更常见）",
+                                  "Object is invalid or was collected (more common on old Unity)."));
+        ImGui::PopStyleColor();
+        return;
+    }
     for (auto it = paths.begin() + (paths.size() > 3 ? paths.size() - 4 : 0); it != paths.end(); ++it)
     {
         const bool isLast = std::next(it) == paths.end();
@@ -1823,10 +1916,14 @@ void ClassesTab::ImGuiJson(Il2CppObject *rootObj)
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(100, 200, 20, 255));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(100, 200, 20, 255));
     static bool doRefresh = false;
-    if (ImGui::Button("Refresh", ImVec2(ImGui::GetContentRegionAvail().x, 0.0f)))
+    if (ImGui::Button(Lang::T("刷新", "Refresh"), ImVec2(ImGui::GetContentRegionAvail().x * 0.65f, 0.0f)))
     {
         doRefresh = true;
     }
+    ImGui::SameLine();
+    ImGui::Checkbox(Lang::T("始终刷新", "Always refresh"), &alwaysRefreshInspector);
+    if (alwaysRefreshInspector)
+        doRefresh = true;
     if (doRefresh)
     {
         doRefresh = false;
@@ -2112,6 +2209,236 @@ void ClassesTab::ImGuiJson(Il2CppObject *rootObj)
     }
 }
 
+                ImGui::PopStyleColor();
+            }
+        }
+    }
+}
+
+static bool isPrimitiveTypeName(const char *n)
+{
+    return n && (!strcmp(n, "System.Boolean") || !strcmp(n, "System.Int16") || !strcmp(n, "System.Int32") ||
+                 !strcmp(n, "System.Int64") || !strcmp(n, "System.UInt16") || !strcmp(n, "System.UInt32") ||
+                 !strcmp(n, "System.UInt64") || !strcmp(n, "System.Single") || !strcmp(n, "System.Double") ||
+                 !strcmp(n, "System.String") || !strcmp(n, "System.Byte") || !strcmp(n, "System.SByte"));
+}
+
+static std::string staticFieldToString(FieldInfo *field)
+{
+    auto type = field->getType();
+    const char *n = type ? type->getName() : "";
+    char buf[128]{0};
+    try
+    {
+        if (!strcmp(n, "System.Boolean"))
+            snprintf(buf, sizeof(buf), "%s", field->getStaticValue<bool>() ? "True" : "False");
+        else if (!strcmp(n, "System.Int32") || !strcmp(n, "System.Int16") || !strcmp(n, "System.Byte") ||
+                 !strcmp(n, "System.SByte"))
+            snprintf(buf, sizeof(buf), "%d", field->getStaticValue<int>());
+        else if (!strcmp(n, "System.Int64"))
+            snprintf(buf, sizeof(buf), "%lld", (long long)field->getStaticValue<int64_t>());
+        else if (!strcmp(n, "System.UInt32") || !strcmp(n, "System.UInt16"))
+            snprintf(buf, sizeof(buf), "%u", field->getStaticValue<uint32_t>());
+        else if (!strcmp(n, "System.UInt64"))
+            snprintf(buf, sizeof(buf), "%llu", (unsigned long long)field->getStaticValue<uint64_t>());
+        else if (!strcmp(n, "System.Single"))
+            snprintf(buf, sizeof(buf), "%g", field->getStaticValue<float>());
+        else if (!strcmp(n, "System.Double"))
+            snprintf(buf, sizeof(buf), "%g", field->getStaticValue<double>());
+        else if (!strcmp(n, "System.String"))
+        {
+            auto s = field->getStaticValue<Il2CppString *>();
+            return s ? s->to_string() : "null";
+        }
+        else
+            snprintf(buf, sizeof(buf), "%p", field->getStaticValue<void *>());
+    }
+    catch (...)
+    {
+        snprintf(buf, sizeof(buf), "?");
+    }
+    return buf;
+}
+
+static void applyStaticFieldString(FieldInfo *field, const std::string &text)
+{
+    auto type = field->getType();
+    const char *n = type ? type->getName() : "";
+    try
+    {
+        if (!strcmp(n, "System.Boolean"))
+            field->setStaticValue<bool>(text == "True" || text == "true" || text == "1");
+        else if (!strcmp(n, "System.Int32") || !strcmp(n, "System.Int16") || !strcmp(n, "System.Byte") ||
+                 !strcmp(n, "System.SByte"))
+            field->setStaticValue<int>(std::stoi(text));
+        else if (!strcmp(n, "System.Int64"))
+            field->setStaticValue<int64_t>(std::stoll(text));
+        else if (!strcmp(n, "System.UInt32") || !strcmp(n, "System.UInt16"))
+            field->setStaticValue<uint32_t>((uint32_t)std::stoul(text));
+        else if (!strcmp(n, "System.UInt64"))
+            field->setStaticValue<uint64_t>(std::stoull(text));
+        else if (!strcmp(n, "System.Single"))
+            field->setStaticValue<float>(std::stof(text));
+        else if (!strcmp(n, "System.Double"))
+            field->setStaticValue<double>(std::stod(text));
+        else if (!strcmp(n, "System.String"))
+            field->setStaticValue<Il2CppString *>(Il2cpp::NewString(text.c_str()));
+    }
+    catch (...)
+    {
+        LOGE("Failed to set static field %s", field->getName());
+    }
+}
+
+void ClassesTab::StaticFieldViewer(Il2CppClass *klass)
+{
+    if (!klass)
+        return;
+    auto fields = klass->getFields(true);
+    bool any = false;
+    for (auto f : fields)
+    {
+        if (Il2cpp::GetFieldFlags(f) & FIELD_ATTRIBUTE_STATIC)
+        {
+            any = true;
+            break;
+        }
+    }
+    if (!any)
+        return;
+    if (!ImGui::CollapsingHeader(Lang::T("静态字段", "Static Fields")))
+        return;
+    for (auto field : fields)
+    {
+        int flags = Il2cpp::GetFieldFlags(field);
+        if (!(flags & FIELD_ATTRIBUTE_STATIC))
+            continue;
+        bool readonly = (flags & FIELD_ATTRIBUTE_LITERAL) || (flags & FIELD_ATTRIBUTE_INIT_ONLY);
+        auto type = field->getType();
+        const char *tn = type ? type->getName() : "?";
+        auto value = staticFieldToString(field);
+        ImGui::PushID(field);
+        ImGui::Text("%s%s %s = %s", readonly ? "[const] " : "", tn, field->getName(), value.c_str());
+        if (!readonly && isPrimitiveTypeName(tn))
+        {
+            ImGui::SameLine();
+            if (ImGui::SmallButton(Lang::T("改", "Edit")))
+            {
+                Keyboard::Open(value.c_str(), [field](const std::string &text) { applyStaticFieldString(field, text); });
+            }
+        }
+        else if (readonly)
+        {
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", Lang::T("只读", "read-only"));
+        }
+        ImGui::PopID();
+    }
+}
+
+static std::string instanceFieldToString(Il2CppObject *obj, FieldInfo *field)
+{
+    auto type = field->getType();
+    const char *n = type ? type->getName() : "";
+    char buf[128]{0};
+    try
+    {
+        if (!strcmp(n, "System.Boolean"))
+            snprintf(buf, sizeof(buf), "%s", field->getValue<bool>(obj) ? "True" : "False");
+        else if (!strcmp(n, "System.Int32") || !strcmp(n, "System.Int16") || !strcmp(n, "System.Byte"))
+            snprintf(buf, sizeof(buf), "%d", field->getValue<int>(obj));
+        else if (!strcmp(n, "System.Int64"))
+            snprintf(buf, sizeof(buf), "%lld", (long long)field->getValue<int64_t>(obj));
+        else if (!strcmp(n, "System.Single"))
+            snprintf(buf, sizeof(buf), "%g", field->getValue<float>(obj));
+        else if (!strcmp(n, "System.Double"))
+            snprintf(buf, sizeof(buf), "%g", field->getValue<double>(obj));
+        else if (!strcmp(n, "System.String"))
+        {
+            auto s = field->getValue<Il2CppString *>(obj);
+            return s ? s->to_string() : "null";
+        }
+        else
+            snprintf(buf, sizeof(buf), "%p", field->getValue<void *>(obj));
+    }
+    catch (...)
+    {
+        snprintf(buf, sizeof(buf), "?");
+    }
+    return buf;
+}
+
+static void applyInstanceFieldString(Il2CppObject *obj, FieldInfo *field, const std::string &text)
+{
+    auto type = field->getType();
+    const char *n = type ? type->getName() : "";
+    try
+    {
+        if (!strcmp(n, "System.Boolean"))
+            field->setValue<bool>(obj, text == "True" || text == "true" || text == "1");
+        else if (!strcmp(n, "System.Int32") || !strcmp(n, "System.Int16") || !strcmp(n, "System.Byte"))
+            field->setValue<int>(obj, std::stoi(text));
+        else if (!strcmp(n, "System.Int64"))
+            field->setValue<int64_t>(obj, std::stoll(text));
+        else if (!strcmp(n, "System.Single"))
+            field->setValue<float>(obj, std::stof(text));
+        else if (!strcmp(n, "System.Double"))
+            field->setValue<double>(obj, std::stod(text));
+        else if (!strcmp(n, "System.String"))
+            field->setValue<Il2CppString *>(obj, Il2cpp::NewString(text.c_str()));
+    }
+    catch (...)
+    {
+        LOGE("Failed to set field %s", field->getName());
+    }
+}
+
+void ClassesTab::HookerCollectedFieldEditor(Il2CppClass *klass)
+{
+    if (!klass)
+        return;
+    auto it = HookerData::collectSet.find(klass);
+    if (it == HookerData::collectSet.end() || it->second.empty())
+        return;
+    if (!ImGui::CollapsingHeader(Lang::T("已收集对象字段", "Collected object fields")))
+        return;
+    int shown = 0;
+    for (auto obj : it->second)
+    {
+        if (!obj || !obj->klass)
+            continue;
+        if (shown++ > 20)
+            break;
+        ImGui::PushID(obj);
+        ImGui::SeparatorText(obj->klass->getName());
+        ImGui::Text("%p", obj);
+        for (auto field : obj->klass->getFields())
+        {
+            int flags = Il2cpp::GetFieldFlags(field);
+            if (flags & FIELD_ATTRIBUTE_STATIC)
+                continue;
+            bool readonly = (flags & FIELD_ATTRIBUTE_LITERAL) || (flags & FIELD_ATTRIBUTE_INIT_ONLY);
+            auto type = field->getType();
+            const char *tn = type ? type->getName() : "?";
+            auto value = instanceFieldToString(obj, field);
+            ImGui::PushID(field);
+            ImGui::Text("%s = %s", field->getName(), value.c_str());
+            if (!readonly && isPrimitiveTypeName(tn))
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton(Lang::T("改", "Edit")))
+                {
+                    Keyboard::Open(value.c_str(), [obj, field](const std::string &text) {
+                        applyInstanceFieldString(obj, field, text);
+                    });
+                }
+            }
+            ImGui::PopID();
+        }
+        ImGui::PopID();
+    }
+}
+
 void ClassesTab::FilterClasses(const std::string &filter)
 {
     filteredClasses.clear();
@@ -2130,6 +2457,16 @@ void ClassesTab::FilterClasses(const std::string &filter)
         classes = selectedImage->getClasses();
     }
 
+    auto equalsCaseInsensitive = [](const std::string &a, const std::string &b)
+    {
+        if (a.size() != b.size())
+            return false;
+        for (size_t i = 0; i < a.size(); i++)
+            if (tolower((unsigned char)a[i]) != tolower((unsigned char)b[i]))
+                return false;
+        return true;
+    };
+
     auto finderCaseSensitive = [](const std::string &a, const std::string &b)
     { return a.find(b) != std::string::npos; };
 
@@ -2142,7 +2479,14 @@ void ClassesTab::FilterClasses(const std::string &filter)
         return newA.find(newB) != std::string::npos;
     };
 
-    auto finder = caseSensitive ? finderCaseSensitive : finderCaseInsensitive;
+    auto finder = [&](const std::string &hay, const std::string &needle) -> bool
+    {
+        if (needle.empty())
+            return true;
+        if (exactMatch)
+            return caseSensitive ? hay == needle : equalsCaseInsensitive(hay, needle);
+        return caseSensitive ? finderCaseSensitive(hay, needle) : finderCaseInsensitive(hay, needle);
+    };
 
     for (int i = 0; i < classes.size() && filteredClasses.size() < (showAllClasses ? classes.size() : MAX_CLASSES); i++)
     {
@@ -2169,8 +2513,27 @@ void ClassesTab::FilterClasses(const std::string &filter)
             bool found = false;
             for (auto m : klass->getMethods())
             {
-                // if (std::string(m->getName()).find(filter) != std::string::npos)
-                if (finder(m->getName(), filter))
+                bool hit = false;
+                if (filterMethodByName && finder(m->getName(), filter))
+                    hit = true;
+                if (!hit && filterMethodByReturn)
+                {
+                    auto rt = m->getReturnType();
+                    if (rt && finder(rt->getName(), filter))
+                        hit = true;
+                }
+                if (!hit && filterMethodByParams)
+                {
+                    for (auto &[pname, ptype] : m->getParamsInfo())
+                    {
+                        if ((pname && finder(pname, filter)) || (ptype && finder(ptype->getName(), filter)))
+                        {
+                            hit = true;
+                            break;
+                        }
+                    }
+                }
+                if (hit)
                 {
                     found = true;
                     auto paramsInfo = m->getParamsInfo();
@@ -2211,10 +2574,15 @@ void to_json(nlohmann::ordered_json &j, const ClassesTab &p)
     j["filterByClass"] = p.filterByClass;
     j["filterByField"] = p.filterByField;
     j["filterByMethod"] = p.filterByMethod;
+    j["filterMethodByName"] = p.filterMethodByName;
+    j["filterMethodByReturn"] = p.filterMethodByReturn;
+    j["filterMethodByParams"] = p.filterMethodByParams;
     j["showAllClasses"] = p.showAllClasses;
     j["includeAllImages"] = p.includeAllImages;
     j["caseSensitive"] = p.caseSensitive;
-    j["selectedImage"] = p.selectedImage->getName();
+    j["exactMatch"] = p.exactMatch;
+    j["alwaysRefreshInspector"] = p.alwaysRefreshInspector;
+    j["selectedImage"] = p.selectedImage ? p.selectedImage->getName() : "";
 }
 
 void from_json(const nlohmann::ordered_json &j, ClassesTab &p)
@@ -2226,6 +2594,16 @@ void from_json(const nlohmann::ordered_json &j, ClassesTab &p)
     j.at("showAllClasses").get_to(p.showAllClasses);
     j.at("includeAllImages").get_to(p.includeAllImages);
     j.at("caseSensitive").get_to(p.caseSensitive);
+    if (j.contains("exactMatch"))
+        j.at("exactMatch").get_to(p.exactMatch);
+    if (j.contains("filterMethodByName"))
+        j.at("filterMethodByName").get_to(p.filterMethodByName);
+    if (j.contains("filterMethodByReturn"))
+        j.at("filterMethodByReturn").get_to(p.filterMethodByReturn);
+    if (j.contains("filterMethodByParams"))
+        j.at("filterMethodByParams").get_to(p.filterMethodByParams);
+    if (j.contains("alwaysRefreshInspector"))
+        j.at("alwaysRefreshInspector").get_to(p.alwaysRefreshInspector);
     std::string selectedImage = j.at("selectedImage").get<std::string>();
     if (selectedImage.ends_with(".dll"))
     {

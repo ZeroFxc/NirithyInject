@@ -1,13 +1,9 @@
-
 # CMakeLists.txt for building ImGui as a library
 
-# Minimum required CMake version
 cmake_minimum_required(VERSION 3.0)
 
-# Project name
 project(imgui)
 
-# Set source files
 set(IMGUI_SOURCES
     imgui_widgets.cpp
     imgui_draw.cpp
@@ -19,29 +15,11 @@ set(IMGUI_SOURCES
     imstb_rectpack.h
     backends/imgui_impl_opengl3.cpp
     backends/imgui_impl_android.cpp
+    backends/imgui_impl_vulkan.cpp
 )
 
-# Add the library target
 add_library(${PROJECT_NAME} STATIC ${IMGUI_SOURCES})
 
-# Include directories (use the imgui source root so the official backends'
-# '#include "imgui.h"' resolves correctly)
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(${PROJECT_NAME} PRIVATE "-w")
-
-# Optionally, if you want to link OpenGL, uncomment and adjust the following lines
-# find_package(OpenGL REQUIRED)
-# target_link_libraries(${PROJECT_NAME} PUBLIC OpenGL::GL)
-
-# Optionally, if you need to link additional libraries, add them here
-# target_link_libraries(${PROJECT_NAME} PUBLIC YourAdditionalLibraries)
-
-# Installation
-# You can uncomment and adjust this section if you want to install ImGui
-# set(INSTALL_DESTINATION "path/to/installation")
-# install(TARGETS ${PROJECT_NAME}
-#         ARCHIVE DESTINATION ${INSTALL_DESTINATION}/lib
-#         LIBRARY DESTINATION ${INSTALL_DESTINATION}/lib
-#         RUNTIME DESTINATION ${INSTALL_DESTINATION}/bin
-# )
-# install(DIRECTORY imgui/ DESTINATION ${INSTALL_DESTINATION}/include/imgui)
+target_compile_definitions(${PROJECT_NAME} PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES)

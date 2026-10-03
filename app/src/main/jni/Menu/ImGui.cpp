@@ -1,5 +1,6 @@
 
 #include "ImGui.h"
+#include "VulkanHook.h"
 #include "KittyMemory/KittyMemory.h"
 #include "dobby.h"
 #include "Includes/Utils.h"
@@ -12,6 +13,13 @@
 #include <GLES3/gl3.h>
 #include <unistd.h>
 #include "EGL/egl.h"
+
+#ifndef GL_FRAMEBUFFER_SRGB
+#define GL_FRAMEBUFFER_SRGB 0x8DB9
+#endif
+#ifndef GL_FRAMEBUFFER_SRGB_EXT
+#define GL_FRAMEBUFFER_SRGB_EXT 0x8DB9
+#endif
 
 using swapbuffers_orig = EGLBoolean (*)(EGLDisplay dpy, EGLSurface surf);
 EGLBoolean swapbuffers_hook(EGLDisplay dpy, EGLSurface surf);
@@ -33,7 +41,6 @@ int getGlHeight()
     return glHeight;
 }
 
-// Taken from https://github.com/fedes1to/Zygisk-ImGui-Menu/blob/main/module/src/main/cpp/hook.cpp
 #define HOOKINPUT(ret, func, ...)                                                                                      \
     ret (*orig##func)(__VA_ARGS__);                                                                                    \
     ret my##func(__VA_ARGS__)
@@ -47,16 +54,12 @@ HOOKINPUT(void, Input, void *thiz, void *ex_ab, void *ex_ac)
 }
 
 ImVec2 initialScreenSize;
-// This menu_addr is used to allow for multiple game support in the future
 bool needClear = true;
 void *initModMenu(void *menu_addr, void *on_init_addr, bool isJni)
 {
     menuAddress = (void (*)())menu_addr;
     onInitAddr = (void (*)())on_init_addr;
-    // do
-    // {
-    //     sleep(1);
-    // } while (!isLibraryLoaded(OBFUSCATE("libEGL.so")));
+    initVulkanHooks();
     if (!isJni)
     {
         needClear = false;
@@ -65,10 +68,12 @@ void *initModMenu(void *menu_addr, void *on_init_addr, bool isJni)
             sleep(1);
         }
         auto swapBuffers = ((uintptr_t)DobbySymbolResolver(OBFUSCATE("libEGL.so"), OBFUSCATE("eglSwapBuffers")));
-        KittyMemory::ProtectAddr((void *)swapBuffers, sizeof(swapBuffers), PROT_READ | PROT_WRITE | PROT_EXEC);
-        DobbyHook((void *)swapBuffers, (void *)swapbuffers_hook, (void **)&o_swapbuffers);
+        if (swapBuffers)
+        {
+            KittyMemory::ProtectAddr((void *)swapBuffers, sizeof(swapBuffers), PROT_READ | PROT_WRITE | PROT_EXEC);
+            DobbyHook((void *)swapBuffers, (void *)swapbuffers_hook, (void **)&o_swapbuffers);
+        }
 
-// // Taken from https://github.com/fedes1to/Zygisk-ImGui-Menu/blob/main/module/src/main/cpp/hook.cpp
 #ifdef LIB_INPUT
         void *sym_input = DobbySymbolResolver(
             OBFUSCATE("/system/lib/libinput.so"),
@@ -97,22 +102,21 @@ void setupMenu()
 
     ImGuiIO &io = ImGui::GetIO();
     io.DisplaySize = ImVec2((float)glWidth, (float)glHeight);
-    // io.ConfigWindowsMoveFromTitleBarOnly = true;
     io.IniFilename = nullptr;
-    // enable docking (1.92+ master release: ImGuiConfigFlags_DockingEnable is docking-branch only, not available)
 
-    // Setup Platform/Renderer backends
     ImGui_ImplAndroid_Init(nullptr);
     ImGui_ImplOpenGL3_Init("#version 300 es");
 
-    // int systemScale = (1.0 / glWidth) * glWidth;
-    // ImFontConfig font_cfg;
-    // font_cfg.SizePixels = systemScale * 22.0f;
     io.Fonts->AddFontFromMemoryTTF(Roboto_Regular, sizeof(Roboto_Regular), 40.0f);
 
     ImGui::GetStyle().ScaleAllSizes(2);
     ImGuiStyle &style = ImGui::GetStyle();
     style.ScrollbarSize *= 2.5f;
+    // Opaque-enough dark window so HDR / sRGB games don't wash the menu to white.
+    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.07f, 0.07f, 0.08f, 0.96f);
+    style.Colors[ImGuiCol_ChildBg] = ImVec4(0.06f, 0.06f, 0.07f, 0.90f);
+    style.Colors[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.08f, 0.09f, 0.96f);
+    style.Colors[ImGuiCol_FrameBg] = ImVec4(0.14f, 0.14f, 0.16f, 0.90f);
 
     if (onInitAddr)
         onInitAddr();
@@ -120,6 +124,20 @@ void setupMenu()
     isInitialized = true;
     LOGI("setup done.");
 }
+
+static void applyOverlayGlState()
+{
+    glDisable(GL_FRAMEBUFFER_SRGB);
+    glDisable(GL_FRAMEBUFFER_SRGB_EXT);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_STENCIL_TEST);
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+}
+
 void internalDrawMenu(int width, int height)
 {
     if (!isInitialized)
@@ -135,6 +153,13 @@ void internalDrawMenu(int width, int height)
 
     ImGui::Render();
 
+    GLboolean srgb = GL_FALSE;
+    glGetBooleanv(GL_FRAMEBUFFER_SRGB, &srgb);
+    if (!srgb)
+        glGetBooleanv(GL_FRAMEBUFFER_SRGB_EXT, &srgb);
+
+    applyOverlayGlState();
+
     if (needClear)
     {
         glViewport(0, 0, width, height);
@@ -143,6 +168,12 @@ void internalDrawMenu(int width, int height)
     }
 
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+    if (srgb)
+    {
+        glEnable(GL_FRAMEBUFFER_SRGB);
+        glEnable(GL_FRAMEBUFFER_SRGB_EXT);
+    }
 }
 
 EGLBoolean swapbuffers_hook(EGLDisplay dpy, EGLSurface surf)

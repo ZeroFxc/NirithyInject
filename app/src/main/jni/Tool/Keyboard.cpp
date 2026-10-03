@@ -21,96 +21,118 @@ namespace Keyboard
     void Open(const char *text, const std::function<void(const std::string &)> &callback)
     {
         LOGD("Keyboard Open");
-        openedKeyboard = TouchScreenKeyboard->invoke_static_method<Il2CppObject *>("Open", Il2cpp::NewString(text), 0,
-                                                                                   0, 0, 0, Il2cpp::NewString(""), 0);
+        if (!TouchScreenKeyboard)
+            Init();
+        if (!TouchScreenKeyboard)
+        {
+            LOGE("TouchScreenKeyboard class missing");
+            return;
+        }
+        auto open = TouchScreenKeyboard->getMethod("Open");
+        if (!open)
+        {
+            LOGE("TouchScreenKeyboard.Open missing");
+            return;
+        }
+        openedKeyboard = TouchScreenKeyboard->invoke_static_method<Il2CppObject *>("Open", Il2cpp::NewString(text ? text : ""),
+                                                                                   0, 0, 0, 0, Il2cpp::NewString(""), 0);
         lastCallback = callback;
     }
 
     void Reset()
     {
         lastCallback = nullptr;
+        if (!openedKeyboard)
+            return;
 
-        // private System.Void Destroy(); // 0x28c52e8
-        // protected override System.Void Finalize(); // 0x28c53b4
-        static auto Destroy = openedKeyboard->klass->getMethod("Destroy");
-        static auto Finalize = openedKeyboard->klass->getMethod("Finalize");
-        if (Destroy)
+        // Instance methods — never invoke_static. The "backup" keyboard path used to crash here.
+        auto klass = openedKeyboard->klass;
+        if (klass)
         {
-            Destroy->invoke_static<void>(openedKeyboard);
-        }
-        if (Finalize)
-        {
-            Finalize->invoke_static<void>(openedKeyboard);
+            auto setActive = klass->getMethod("set_active", 1);
+            if (setActive)
+            {
+                bool off = false;
+                void *args[1] = {&off};
+                Il2cpp::RuntimeInvoke(setActive, openedKeyboard, args, nullptr);
+            }
         }
         openedKeyboard = nullptr;
     }
 
-    void Update()
+    static bool readStatus(TouchScreenKeyboardStatus &status)
     {
-        if (openedKeyboard)
+        if (!openedKeyboard || !TouchScreenKeyboard)
+            return false;
+        auto get_statusMethod = TouchScreenKeyboard->getMethod("get_status");
+        if (!get_statusMethod)
+            return false;
+
+        // Both the default RuntimeInvoke path and the "backup" invoke_method path
+        // go through boxed enum unbox. The old backup path crashed because it
+        // treated Destroy/Finalize as static and because get_status was invoked
+        // with the wrong this ABI on some Unity versions.
+        Il2CppException *exc = nullptr;
+        auto result = Il2cpp::RuntimeInvoke(get_statusMethod, openedKeyboard, nullptr, &exc);
+        if (exc || !result)
         {
-            static auto get_statusMethod = TouchScreenKeyboard->getMethod("get_status");
-            // static auto get_status = (TouchScreenKeyboardStatus(*)(void *, MethodInfo *, Il2CppObject *,
-            //                                                        void *))get_statusMethod->invoker_method;
-            TouchScreenKeyboardStatus status = Canceled;
             if (check)
             {
-                status = openedKeyboard->invoke_method<TouchScreenKeyboardStatus>("get_status");
-            }
-            else
-            {
-                // status = get_status(get_statusMethod->methodPointer, get_statusMethod, openedKeyboard, nullptr);
-                auto result = Il2cpp::RuntimeInvoke(get_statusMethod, openedKeyboard, nullptr, nullptr);
-                if (!result)
+                // Backup: try instance invoke via invoker_method
+                try
                 {
-                    LOGE("Failed to get status");
-                    // static auto set_activeMethod = TouchScreenKeyboard->getMethod("set_active");
-                    // if (set_activeMethod)
-                    // {
-                    //     // FIXME: maybe use invoker_method
-                    //     // set_active->invoke_static<void>(openedKeyboard, 0);
-                    //     auto set_active = (void (*)(bool))set_activeMethod->invoker_method;
-                    //     set_active(0);
+                    status = openedKeyboard->invoke_method<TouchScreenKeyboardStatus>("get_status");
+                    return true;
+                }
+                catch (...)
+                {
+                    return false;
+                }
+            }
+            return false;
+        }
+        status = Il2cpp::GetUnboxedValue<TouchScreenKeyboardStatus>(result);
+        return true;
+    }
 
-                    //     LOGD("set active");
-                    // }
-                    // else
-                    // {
-                    //     LOGE("Failed to set active");
-                    // }
-                    return Reset();
-                }
-                status = Il2cpp::GetUnboxedValue<TouchScreenKeyboardStatus>(result);
-            }
-            if (status == Done)
-            {
-                static auto get_textMethod = TouchScreenKeyboard->getMethod("get_text");
-                static auto get_text =
-                    (Il2CppString * (*)(void *, MethodInfo *, Il2CppObject *, void *)) get_textMethod->invoker_method;
-                Il2CppString *text = nullptr;
-                if (check)
-                {
-                    text = openedKeyboard->invoke_method<Il2CppString *>("get_text");
-                }
-                else
-                {
-                    text = get_text(get_textMethod->methodPointer, get_textMethod, openedKeyboard, nullptr);
-                }
+    void Update()
+    {
+        if (!openedKeyboard)
+            return;
 
-                auto result = text->to_string();
-                if (lastCallback)
-                {
-                    lastCallback(result);
-                }
-
-                Reset();
-                LOGD("Keyboard Done");
-            }
-            else if (status != Visible)
+        TouchScreenKeyboardStatus status = Canceled;
+        if (!readStatus(status))
+        {
+            LOGE("Failed to get keyboard status");
+            Reset();
+            return;
+        }
+        if (status == Done)
+        {
+            Il2CppString *text = nullptr;
+            auto get_textMethod = TouchScreenKeyboard->getMethod("get_text");
+            if (get_textMethod)
             {
-                Reset();
-                LOGD("Keyboard Canceled");
+                Il2CppException *exc = nullptr;
+                auto result = Il2cpp::RuntimeInvoke(get_textMethod, openedKeyboard, nullptr, &exc);
+                text = (Il2CppString *)result;
             }
+            if (!text && check && openedKeyboard)
+            {
+                text = openedKeyboard->invoke_method<Il2CppString *>("get_text");
+            }
+
+            std::string resultStr = text ? text->to_string() : "";
+            auto cb = lastCallback;
+            Reset();
+            if (cb)
+                cb(resultStr);
+            LOGD("Keyboard Done");
+        }
+        else if (status != Visible)
+        {
+            Reset();
+            LOGD("Keyboard Canceled");
         }
     }
 

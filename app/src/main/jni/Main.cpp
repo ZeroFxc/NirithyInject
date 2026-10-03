@@ -1,14 +1,18 @@
-#include <jni.h>     // for JNI_ERR, JNIEnv, jclass, JNINativeM...
-#include <pthread.h> // for pthread_create
+#include <jni.h>
+#include <pthread.h>
 #include <thread>
-#include <unistd.h>              // for sleep
-#include "Il2cpp/Il2cpp.h"       // for EnsureAttached, Init
-#include "Il2cpp/il2cpp-class.h" // for Il2CppImage, Il2CppObject
-#include "Includes/Logger.h"     // for LOGD, LOGI
-#include "Includes/Utils.h"      // for isGameLibLoaded, isLibraryLoaded
-#include "Includes/obfuscate.h"  // for make_obfuscator, OBFUSCATE
+#include <unistd.h>
+#include "Il2cpp/Il2cpp.h"
+#include "Il2cpp/il2cpp-class.h"
+#include "Includes/Logger.h"
+#include "Includes/Utils.h"
+#include "Includes/obfuscate.h"
 #include "Menu/ImGui.h"
+#include "Menu/VulkanHook.h"
 #include "Tool/Keyboard.h"
+#include "Tool/Lang.h"
+#include "Tool/TextureCache.h"
+#include "Tool/Targets.h"
 #include "Tool/Tool.h"
 #include "Tool/Util.h"
 #include "imgui/imgui.h"
@@ -16,6 +20,7 @@
 #include "sstream"
 #include "jni.h"
 #include "Tool/Unity.h"
+#include <atomic>
 
 void logcatJson(nlohmann::ordered_json &json)
 {
@@ -32,7 +37,6 @@ void logcatJson(nlohmann::ordered_json &json)
 template <typename T>
 void ConfigSet(const char *key, T value);
 
-// Target lib here
 #define targetLibName OBFUSCATE("libil2cpp.so")
 
 Il2CppImage *g_Image = nullptr;
@@ -42,7 +46,6 @@ extern int maxLine;
 
 extern ImVec2 initialScreenSize;
 
-// config
 bool collapsed = false;
 bool fullScreen = false;
 bool resetWindow = false;
@@ -57,11 +60,30 @@ constexpr std::array<float, 7> scaleFactors = {0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 
 
 ImGuiStyle initialStyle;
 
-const char *title = OBFUSCATE("IL2CPP Tool v0.9 By mIsmanXP @ Platinmods.com | Discord : @cat.ll");
+const char *title = OBFUSCATE("IL2CPP Tool v1.0 | Zygisk + GLES/Vulkan");
+static std::atomic<bool> g_hackStarted{false};
+
 void draw_thread()
 {
     static ImVec2 lastSize = ImVec2(0, 0);
     static ImVec2 lastPos = ImVec2(0, 0);
+
+    if (!Il2cpp::IsReady())
+    {
+        ImGui::SetNextWindowPos(ImVec2(20, 80), ImGuiCond_Once);
+        ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x * 0.7f, 0), ImGuiCond_Once);
+        ImGui::Begin(Lang::T("IL2CPP 错误", "IL2CPP Error"), nullptr);
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 80, 80, 255));
+        ImGui::TextWrapped("%s", Il2cpp::GetStatusMessage());
+        ImGui::PopStyleColor();
+        ImGui::Separator();
+        ImGui::TextWrapped("%s",
+                           Lang::T("游戏可能未使用 IL2CPP，或 libil2cpp.so 被混淆/加密/重命名。菜单仍可显示，但检查器不可用。",
+                                   "This game may not use IL2CPP, or libil2cpp.so is obfuscated/encrypted/renamed. The overlay still shows, but the inspector is disabled."));
+        Lang::Combo();
+        ImGui::End();
+        return;
+    }
 
     if (resetWindow)
     {
@@ -137,10 +159,10 @@ void draw_thread()
     static bool changeToToolsTab = false;
     if (ImGui::BeginTabBar("mainTabber"))
     {
-        if (ImGui::BeginTabItem("Tools", nullptr, changeToToolsTab ? ImGuiTabItemFlags_SetSelected : 0))
+        if (ImGui::BeginTabItem(Lang::T("工具", "Tools"), nullptr, changeToToolsTab ? ImGuiTabItemFlags_SetSelected : 0))
         {
             changeToToolsTab = false;
-            if (ImGui::Checkbox("Fullscreen", &fullScreen))
+            if (ImGui::Checkbox(Lang::T("全屏", "Fullscreen"), &fullScreen))
             {
                 if (fullScreen)
                 {
@@ -155,9 +177,9 @@ void draw_thread()
 
         if (!hookerMap.empty())
         {
-            if (ImGui::BeginTabItem("Tracer"))
+            if (ImGui::BeginTabItem(Lang::T("跟踪器", "Tracer")))
             {
-                ImGui::Text("Traced method count : %zu", hookerMap.size());
+                ImGui::Text("%s %zu", Lang::T("已跟踪方法数 :", "Traced method count :"), hookerMap.size());
                 std::vector<HookerData *> sortedHooker;
                 for (auto &[name, data] : hookerMap)
                 {
@@ -166,7 +188,7 @@ void draw_thread()
                 }
                 if (!sortedHooker.empty())
                 {
-                    if (ImGui::Button("Quick Restore"))
+                    if (ImGui::Button(Lang::T("快速恢复", "Quick Restore")))
                     {
                         ImGui::OpenPopup("QuickRestorePopup");
                     }
@@ -177,23 +199,22 @@ void draw_thread()
                     auto &tab = Tool::GetFirstTab();
                     for (auto v : sortedHooker)
                     {
-                        char label[256]{0};
-                        sprintf(label, "%s::%s (%dx)###%p", v->method->getClass()->getName(), v->method->getName(),
-                                v->hitCount, v->method);
-                        // if (ImGui::Button(label, ImVec2(ImGui::GetContentRegionAvail().x, 0)))
-                        // {
-                        //     toBeErased = v;
-                        // }
-
+                        if (!v->method)
+                            continue;
                         ImGui::PushID(v->method);
                         bool opened =
                             tab.MethodViewer(v->method->getClass(), v->method, tab.getCachedParams(v->method));
+                        // Field editor in the tracer / hooker list
+                        if (opened && v->method->getClass())
+                        {
+                            tab.StaticFieldViewer(v->method->getClass());
+                            tab.HookerCollectedFieldEditor(v->method->getClass());
+                        }
                         if (!opened && !changeToToolsTab && ImGui::IsItemHeld())
                         {
                             LOGD("IsItemHeld %s", v->method->getName());
                             changeToToolsTab = true;
                             Tool::OpenNewTabFromClass(v->method->getClass()).setOpenedTab = true;
-                            ;
                             ImGui::PopID();
                             break;
                         }
@@ -227,28 +248,26 @@ void draw_thread()
                 else
                 {
                     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
-                    ImGui::Text("No traced method has been called yet");
+                    ImGui::Text("%s", Lang::T("还没有被调用的跟踪方法", "No traced method has been called yet"));
                     ImGui::PopStyleColor();
                 }
                 ImGui::EndTabItem();
             }
         }
-        if (ImGui::BeginTabItem("Dumper"))
+        if (ImGui::BeginTabItem(Lang::T("转储", "Dumper")))
         {
             Tool::Dumper();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Settings"))
+        if (ImGui::BeginTabItem(Lang::T("设置", "Settings")))
         {
             ImGui::Separator();
-            ImGui::Text("Display");
-            // ImGui::SliderFloat("Scale##Global", &font->Scale, .1f, 2.0f, "%.2f");
+            ImGui::Text("%s", Lang::T("显示", "Display"));
             auto preview = possibleScale[selectedScale];
-            if (ImGui::BeginCombo("Scale##Global", preview))
+            if (ImGui::BeginCombo(Lang::T("缩放##Global", "Scale##Global"), preview))
             {
                 for (int i = 0; i < possibleScale.size(); i++)
                 {
-                    // bool selected = strcmp(possibleScale[i], preview) == 0;
                     bool selected = i == selectedScale;
                     if (ImGui::Selectable(possibleScale[i], selected))
                     {
@@ -263,32 +282,44 @@ void draw_thread()
                 }
                 ImGui::EndCombo();
             }
-            ImGui::Checkbox("Enable if keyboard input is not being received", &Keyboard::check);
+            if (Lang::Combo())
+            {
+                ConfigSet("lang", Lang::current);
+            }
+            ImGui::Checkbox(Lang::T("键盘收不到输入时启用备用方案", "Enable if keyboard input is not being received"),
+                            &Keyboard::check);
+            if (ImGui::Button(Lang::T("重置图片缓存", "Reset image cache")))
+            {
+                TextureCache::Reset();
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%zu)", TextureCache::Count());
 #ifdef __DEBUG__
             if (ImGui::Checkbox("Show Demo Window", &showDemoWindow))
             {
             }
 #endif
             ImGui::Separator();
-            ImGui::Text("Info");
+            ImGui::Text("%s", Lang::T("信息", "Info"));
             static auto packageName = Il2cpp::getPackageName();
             static auto unityVersion = Il2cpp::getUnityVersion();
             static auto gameVersion = Il2cpp::getGameVersion();
-            ImGui::Text("Package: %s", packageName.c_str());
-            ImGui::Text("Version: %s", gameVersion.c_str());
+            ImGui::Text("%s: %s", Lang::T("包名", "Package"), packageName.c_str());
+            ImGui::Text("%s: %s", Lang::T("版本", "Version"), gameVersion.c_str());
             ImGui::Text("Unity: %s", unityVersion.c_str());
 #ifdef __aarch64__
             ImGui::Text("Arch: %s", "arm64-v8a");
 #else
             ImGui::Text("Arch: %s", "armeabi-v7a");
 #endif
+            ImGui::Text("%s: %s", Lang::T("渲染", "Renderer"),
+                        isVulkanOverlayActive() ? "Vulkan" : "OpenGL ES");
             ImGui::Separator();
 
-            // FIXME: DRY
             if (ImGui::Button("Tg : crackhannel", ImVec2(-1, 0)))
             {
                 auto Application = Il2cpp::FindClass("UnityEngine.Application");
-                auto OpenURL = Application->getMethod("OpenURL", 1);
+                auto OpenURL = Application ? Application->getMethod("OpenURL", 1) : nullptr;
                 if (OpenURL)
                 {
                     OpenURL->invoke_static<void>(Il2cpp::NewString(OBFUSCATE("https://t.me/crackhannel")));
@@ -301,7 +332,7 @@ void draw_thread()
             if (ImGui::Button("Qgroup : ", ImVec2(-1, 0)))
             {
                 auto Application = Il2cpp::FindClass("UnityEngine.Application");
-                auto OpenURL = Application->getMethod("OpenURL", 1);
+                auto OpenURL = Application ? Application->getMethod("OpenURL", 1) : nullptr;
                 if (OpenURL)
                 {
                     OpenURL->invoke_static<void>(Il2cpp::NewString(OBFUSCATE("https://qm.qq.com/q/f7KWZ9wJtS")));
@@ -403,21 +434,39 @@ void ConfigInit()
 void on_init()
 {
     LOGD(__FUNCTION__);
-    while (!isLibraryLoaded(targetLibName))
+    int waited = 0;
+    while (!isLibraryLoaded(targetLibName) && waited < 30)
     {
         sleep(1);
+        waited++;
+    }
+
+    Il2cpp::Init();
+    if (!Il2cpp::IsReady())
+    {
+        LOGE("il2cpp init failed: %s", Il2cpp::GetStatusMessage());
+        initialStyle = ImGui::GetStyle();
+        ConfigInit();
+        Lang::current = ConfigGet<int>("lang", 0);
+        selectedScale = ConfigGet<int>("selectedScale", selectedScale);
+        doChangeScale = true;
+        return;
     }
 
     LOGI("%s has been loaded", (const char *)targetLibName);
 
-    Il2cpp::Init();
-    Il2cpp::EnsureAttached();
+    if (!Il2cpp::EnsureAttached())
+    {
+        LOGE("il2cpp attach failed");
+        return;
+    }
 
     Keyboard::Init();
 
     initialStyle = ImGui::GetStyle();
     ConfigInit();
     selectedScale = ConfigGet<int>("selectedScale", selectedScale);
+    Lang::current = ConfigGet<int>("lang", 0);
     if (selectedScale < 0 || selectedScale >= scaleFactors.size())
     {
         selectedScale = 3;
@@ -431,41 +480,57 @@ void on_init()
     Unity::HookInput();
 #endif
 
-    g_Image = Il2cpp::GetAssembly("Assembly-CSharp")->getImage();
+    auto assembly = Il2cpp::GetAssembly("Assembly-CSharp");
+    g_Image = assembly ? assembly->getImage() : nullptr;
     auto images = Il2cpp::GetImages();
+    if (!g_Image && !images.empty())
+        g_Image = images.front();
     Tool::Init(g_Image, images);
 
     for (auto image : images)
     {
+        if (!image)
+            continue;
         for (auto klass : image->getClasses())
         {
+            if (!klass)
+                continue;
             for (auto m : klass->getMethods())
             {
-                if (!m->methodPointer)
+                if (!m || !m->methodPointer)
                     continue;
                 g_Methods.emplace_back(m);
             }
         }
     }
     LOGD("%zu methods", g_Methods.size());
-    LOGD("SORTING");
-    std::sort(g_Methods.begin(), g_Methods.end(),
-              [](const auto &a, const auto &b) { return a->methodPointer < b->methodPointer; });
-    LOGPTR(g_Methods.front()->methodPointer);
-    LOGPTR(g_Methods.back()->methodPointer);
-    LOGD("SORTED");
+    if (!g_Methods.empty())
+    {
+        LOGD("SORTING");
+        std::sort(g_Methods.begin(), g_Methods.end(),
+                  [](const auto &a, const auto &b) { return a->methodPointer < b->methodPointer; });
+        LOGPTR(g_Methods.front()->methodPointer);
+        LOGPTR(g_Methods.back()->methodPointer);
+        LOGD("SORTED");
+    }
     LOGD("HOOKED!");
 }
 
-// we will run our hacks in a new thread so our while loop doesn't block process main thread
 bool useJava = false;
 void *hack_thread(void *)
 {
+    bool expected = false;
+    if (!g_hackStarted.compare_exchange_strong(expected, true))
+    {
+        LOGI("hack_thread already started");
+        return nullptr;
+    }
     logger::Clear();
 
     LOGI("pthread created");
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     LOGINT(useJava);
+    initVulkanHooks();
     if (!useJava)
         initModMenu((void *)draw_thread, (void *)on_init);
     return nullptr;
@@ -487,7 +552,6 @@ extern "C"
         static bool once = true;
         if (once)
         {
-            // once = false;
             glWidth = width;
             glHeight = height;
             LOGD("glWidth = %d, glHeight = %d", glWidth, glHeight);
@@ -501,9 +565,21 @@ extern "C"
         initModMenu((void *)draw_thread, (void *)on_init, useJava);
     }
 }
+
+// APK / in-process inject path. Zygisk starts hack_thread from postAppSpecialize
+// instead; the atomic in hack_thread de-dupes the two.
 __attribute__((constructor)) void lib_main()
 {
-    // Create a new thread so it does not block the main thread, means the game would not freeze
+    // If a Zygisk allow-list exists and this process is not on it, skip.
+    if (Targets::ConfigExists())
+    {
+        auto pkg = Targets::CurrentProcessPackage();
+        if (!Targets::Contains(pkg))
+        {
+            LOGI("constructor: skip non-target %s", pkg.c_str());
+            return;
+        }
+    }
     pthread_t ptid;
     pthread_create(&ptid, nullptr, hack_thread, nullptr);
 }

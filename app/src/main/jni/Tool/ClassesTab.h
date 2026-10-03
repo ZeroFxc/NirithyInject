@@ -32,11 +32,16 @@ struct ClassesTab
     std::unordered_map<Object, DataPair> dataMap{};
 
     bool caseSensitive = true;
+    bool exactMatch = false;
     bool filterByClass = true;
     bool filterByMethod = false;
     bool filterByField = false;
+    bool filterMethodByName = true;
+    bool filterMethodByReturn = false;
+    bool filterMethodByParams = false;
     bool showAllClasses = false;
     bool includeAllImages = false;
+    bool alwaysRefreshInspector = false;
 
     std::map<Il2CppObject *, bool> tabMap{};
 
@@ -92,6 +97,8 @@ struct ClassesTab
 
     static std::unordered_map<Il2CppClass *, bool> states;
     void ClassViewer(Il2CppClass *klass);
+    void StaticFieldViewer(Il2CppClass *klass);
+    void HookerCollectedFieldEditor(Il2CppClass *klass);
 
     std::string filter = "";
     int selectedImageIndex = -1;

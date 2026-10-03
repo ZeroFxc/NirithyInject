@@ -544,6 +544,11 @@ void il2cpp_dump(const char *outDir, const std::function<void(const char *, int,
 void il2cpp_api_init(void *handle)
 {
     LOGI("il2cpp_handle: %p", handle);
+    if (!handle)
+    {
+        LOGE("Failed to initialize il2cpp api (null handle).");
+        return;
+    }
     init_il2cpp_api(handle);
     if (il2cpp_domain_get_assemblies)
     {
@@ -559,13 +564,13 @@ void il2cpp_api_init(void *handle)
         LOGE("Failed to initialize il2cpp api.");
         return;
     }
-    while (!il2cpp_is_vm_thread(nullptr))
+    int wait = 0;
+    while (il2cpp_is_vm_thread && !il2cpp_is_vm_thread(nullptr) && wait < 60)
     {
         LOGI("Waiting for il2cpp_init...");
         sleep(1);
+        wait++;
     }
-    //    auto domain = il2cpp_domain_get();
-    //    il2cpp_thread_attach(domain);
 }
 
 bool g_DoLog = true;
@@ -626,11 +631,13 @@ namespace UnityVersion
     {
         std::smatch aMatches, bMatches;
 
-        std::regex_search(a, aMatches, pattern);
-        std::regex_search(b, bMatches, pattern);
+        if (!std::regex_search(a, aMatches, pattern) || !std::regex_search(b, bMatches, pattern))
+            return 0;
 
         for (int i = 1; i <= 3; ++i)
         {
+            if (aMatches[i].str().empty() || bMatches[i].str().empty())
+                return 0;
             int aValue = std::stoi(aMatches[i].str());
             int bValue = std::stoi(bMatches[i].str());
 
@@ -646,11 +653,91 @@ namespace UnityVersion
 
 namespace Il2cpp
 {
+    static std::string g_statusMessage = "IL2CPP 尚未初始化";
+    static bool g_ready = false;
+
+    static void *openIl2cppHandle()
+    {
+        const char *candidates[] = {
+            "libil2cpp.so",
+            "libIl2Cpp.so",
+            "libIL2CPP.so",
+            "libunity.so",
+        };
+        for (auto name : candidates)
+        {
+            auto handle = xdl_open(name, 0);
+            if (handle)
+            {
+                LOGI("opened %s", name);
+                return handle;
+            }
+        }
+        // Obfuscated / renamed: locate a mapped ELF that exports il2cpp_domain_get.
+        FILE *fp = fopen("/proc/self/maps", "r");
+        if (!fp)
+            return nullptr;
+        char line[512];
+        std::string lastPath;
+        while (fgets(line, sizeof(line), fp))
+        {
+            char path[384]{0};
+            if (sscanf(line, "%*s %*s %*s %*s %*s %383s", path) != 1)
+                continue;
+            if (!strstr(path, ".so"))
+                continue;
+            if (lastPath == path)
+                continue;
+            lastPath = path;
+            auto h = xdl_open(path, 0);
+            if (!h)
+                continue;
+            if (xdl_sym(h, "il2cpp_domain_get_assemblies", nullptr) || xdl_sym(h, "il2cpp_domain_get", nullptr))
+            {
+                LOGI("found il2cpp exports in %s", path);
+                fclose(fp);
+                return h;
+            }
+            xdl_close(h);
+        }
+        fclose(fp);
+        return nullptr;
+    }
+
     void Init()
     {
-        auto handle = xdl_open("libil2cpp.so", 0);
+        g_ready = false;
+        auto handle = openIl2cppHandle();
+        if (!handle)
+        {
+            g_statusMessage =
+                "未找到 libil2cpp.so（游戏可能不是 IL2CPP，或 so 被混淆/加密/重命名）。\n"
+                "libil2cpp.so not found — game may not use IL2CPP, or the library is obfuscated/encrypted/renamed.";
+            LOGE("%s", g_statusMessage.c_str());
+            return;
+        }
         il2cpp_api_init(handle);
         xdl_close(handle);
+        if (!il2cpp_domain_get_assemblies || !il2cpp_domain_get)
+        {
+            g_statusMessage =
+                "已加载 native 库但无法解析 IL2CPP API（符号被剥离或加密）。\n"
+                "Native library loaded but IL2CPP API symbols could not be resolved (stripped or encrypted).";
+            LOGE("%s", g_statusMessage.c_str());
+            return;
+        }
+        g_ready = true;
+        g_statusMessage = "OK";
+    }
+
+    bool IsReady()
+    {
+        return g_ready;
+    }
+
+    const char *GetStatusMessage()
+    {
+        return g_statusMessage.c_str();
     }
 
     void Dump(JNIEnv *env)
@@ -729,6 +816,11 @@ namespace Il2cpp
 
     bool EnsureAttached()
     {
+        if (!il2cpp_thread_current || !il2cpp_thread_attach || !il2cpp_domain_get)
+        {
+            LOGE("EnsureAttached: il2cpp API missing");
+            return false;
+        }
         auto curr = il2cpp_thread_current();
         if (!curr)
         {
@@ -741,10 +833,12 @@ namespace Il2cpp
         }
         LOGI("Attaching Thread");
         auto *thread = il2cpp_thread_attach(il2cpp_domain_get());
-        while (!il2cpp_is_vm_thread(thread))
+        int wait = 0;
+        while (thread && il2cpp_is_vm_thread && !il2cpp_is_vm_thread(thread) && wait < 30)
         {
             LOGI("Waiting...");
             sleep(1);
+            wait++;
         }
         if (!thread)
         {
@@ -939,12 +1033,42 @@ namespace Il2cpp
     std::vector<Il2CppClass *> GetClasses(Il2CppImage *image, const char *filter)
     {
         std::vector<Il2CppClass *> classes;
-        auto size = il2cpp_image_get_class_count(image);
-        for (size_t i{0}; i < size; i++)
+        if (!image)
+            return classes;
+        if (il2cpp_image_get_class_count && il2cpp_image_get_class)
         {
-            auto klass = il2cpp_image_get_class(image, i);
-            if (!filter || strstr(klass->getFullName().c_str(), filter))
-                classes.push_back(klass);
+            auto size = il2cpp_image_get_class_count(image);
+            for (size_t i{0}; i < size; i++)
+            {
+                auto klass = il2cpp_image_get_class(image, i);
+                if (!klass)
+                    continue;
+                if (!filter || strstr(klass->getFullName().c_str(), filter))
+                    classes.push_back(klass);
+            }
+            return classes;
+        }
+        // Unity 2017 / 5.x: il2cpp_image_get_class is missing. Walk every class.
+        if (il2cpp_class_for_each && il2cpp_class_get_image)
+        {
+            struct Ctx
+            {
+                Il2CppImage *image;
+                const char *filter;
+                std::vector<Il2CppClass *> *out;
+            } ctx{image, filter, &classes};
+            il2cpp_class_for_each(
+                [](Il2CppClass *klass, void *user)
+                {
+                    auto c = reinterpret_cast<Ctx *>(user);
+                    if (!klass)
+                        return;
+                    if (il2cpp_class_get_image(klass) != c->image)
+                        return;
+                    if (!c->filter || strstr(klass->getFullName().c_str(), c->filter))
+                        c->out->push_back(klass);
+                },
+                &ctx);
         }
         return classes;
     }
@@ -971,8 +1095,8 @@ namespace Il2cpp
 
     void forEachClass(Il2CppClass *klass, void *classesPtr)
     {
-        auto classes = *(std::vector<Il2CppClass *> *)classesPtr;
-        classes.push_back(klass);
+        auto classes = (std::vector<Il2CppClass *> *)classesPtr;
+        classes->push_back(klass);
     }
 
     std::vector<Il2CppClass *> GetClasses()
@@ -1319,48 +1443,93 @@ namespace Il2cpp
         // TODO: handle other unity versions
         std::vector<Il2CppObject *> FindObjects(Il2CppClass *klass)
         {
+            std::vector<Il2CppObject *> objects;
+            if (!klass)
+                return objects;
+            if (GetClassIsValueType(klass) || GetClassIsEnum(klass))
+            {
+                LOGD("FindObjects skipped for value type/enum %s", klass->getFullName().c_str());
+                return objects;
+            }
             static auto unityVersion = getUnityVersion();
             static bool unityVersionIsBelow202120 = UnityVersion::lt(unityVersion, "2021.2.0");
             LOGD("Seaching objects for %s", klass->getFullName().c_str());
 
-            std::vector<Il2CppObject *> objects;
-            // typedef void (*il2cpp_register_object_callback)(Il2CppObject **arr, int size, void *userdata);
             auto callback = [](Il2CppObject **arr, int size, void *userdata)
             {
                 auto objects = reinterpret_cast<std::vector<Il2CppObject *> *>(userdata);
+                if (!arr || size <= 0)
+                    return;
                 objects->insert(objects->end(), arr, arr + size);
             };
-            if (unityVersionIsBelow202120)
-            {
 
-                // typedef void (*il2cpp_WorldChangedCallback)();
+            bool usedLiveness = false;
+            if (unityVersionIsBelow202120 && il2cpp_unity_liveness_calculation_begin &&
+                il2cpp_unity_liveness_calculation_from_statics && il2cpp_unity_liveness_calculation_end)
+            {
                 auto onWorld = []() {};
-
                 auto state = il2cpp_unity_liveness_calculation_begin(klass, 0, callback, &objects, onWorld, onWorld);
-                il2cpp_unity_liveness_calculation_from_statics(state);
-                il2cpp_unity_liveness_calculation_end(state);
+                if (state)
+                {
+                    il2cpp_unity_liveness_calculation_from_statics(state);
+                    il2cpp_unity_liveness_calculation_end(state);
+                    usedLiveness = true;
+                }
             }
-            else
+            else if (il2cpp_unity_liveness_allocate_struct && il2cpp_unity_liveness_calculation_from_statics &&
+                     il2cpp_unity_liveness_finalize && il2cpp_unity_liveness_free_struct)
             {
-                // typedef void *(*il2cpp_liveness_reallocate_callback)(void *ptr, size_t size, void *userdata);
-                auto realloc = [](void *ptr, size_t size, void *userdata) -> void *
+                auto reallocCb = [](void *ptr, size_t size, void *userdata) -> void *
                 {
                     if (ptr != nullptr && size == 0)
                     {
-                        il2cpp_free(ptr);
+                        if (il2cpp_free)
+                            il2cpp_free(ptr);
                         return nullptr;
                     }
-                    else
-                    {
+                    if (il2cpp_alloc)
                         return il2cpp_alloc(size);
-                    }
+                    return nullptr;
                 };
-                il2cpp_stop_gc_world();
-                auto state = il2cpp_unity_liveness_allocate_struct(klass, 0, callback, &objects, realloc);
-                il2cpp_unity_liveness_calculation_from_statics(state);
-                il2cpp_unity_liveness_finalize(state);
-                il2cpp_start_gc_world();
-                il2cpp_unity_liveness_free_struct(state);
+                if (il2cpp_stop_gc_world)
+                    il2cpp_stop_gc_world();
+                auto state = il2cpp_unity_liveness_allocate_struct(klass, 0, callback, &objects, reallocCb);
+                if (state)
+                {
+                    il2cpp_unity_liveness_calculation_from_statics(state);
+                    il2cpp_unity_liveness_finalize(state);
+                    usedLiveness = true;
+                }
+                if (il2cpp_start_gc_world)
+                    il2cpp_start_gc_world();
+                if (state)
+                    il2cpp_unity_liveness_free_struct(state);
+            }
+
+            if (!usedLiveness)
+            {
+                // Oldest Unity / missing liveness: Object.FindObjectsOfType
+                auto Object = FindClass("UnityEngine.Object");
+                if (Object)
+                {
+                    auto fot = Object->getMethod("FindObjectsOfType", 1);
+                    if (!fot)
+                        fot = Object->getMethod("FindObjectsOfType");
+                    if (fot)
+                    {
+                        auto typeObj = GetTypeObject(GetClassType(klass));
+                        Il2CppArray<Il2CppObject *> *arr = nullptr;
+                        if (typeObj)
+                            arr = fot->invoke_static<Il2CppArray<Il2CppObject *> *>(typeObj);
+                        if (arr)
+                        {
+                            auto n = arr->length();
+                            for (uint32_t i = 0; i < n; i++)
+                                if (arr->data[i])
+                                    objects.push_back(arr->data[i]);
+                        }
+                    }
+                }
             }
             LOGD("Found %lu objects", objects.size());
             return objects;

@@ -1,0 +1,567 @@
+// Native Vulkan overlay: hook vkQueuePresentKHR and draw ImGui on the swapchain.
+// Loaded via Dobby from libvulkan.so. Does not use Java SurfaceView.
+
+#include "VulkanHook.h"
+#include "ImGui.h"
+#include "Includes/Logger.h"
+#include "Includes/obfuscate.h"
+#include "dobby.h"
+#include "imgui/imgui.h"
+#include "imgui/backends/imgui_impl_android.h"
+#include "imgui/backends/imgui_impl_vulkan.h"
+#include "Includes/Roboto-Regular.h"
+
+#define VK_NO_PROTOTYPES
+#include <vulkan/vulkan.h>
+
+#include <atomic>
+#include <cstring>
+#include <mutex>
+#include <string>
+#include <unistd.h>
+#include <dlfcn.h>
+#include <vector>
+#include <unordered_map>
+
+extern void (*menuAddress)();
+extern void (*onInitAddr)();
+extern bool isInitialized;
+extern int glWidth;
+extern int glHeight;
+extern ImVec2 initialScreenSize;
+void setupMenu();
+void internalDrawMenu(int width, int height);
+
+static void *g_vulkanLib = nullptr;
+static std::atomic<bool> g_vkActive{false};
+static std::atomic<bool> g_hooksInstalled{false};
+
+#define VK_FN(ret, name, args) static PFN_##name p##name = nullptr;
+VK_FN(VkResult, vkCreateInstance, )
+VK_FN(VkResult, vkCreateDevice, )
+VK_FN(void, vkDestroyDevice, )
+VK_FN(VkResult, vkCreateSwapchainKHR, )
+VK_FN(void, vkDestroySwapchainKHR, )
+VK_FN(VkResult, vkGetSwapchainImagesKHR, )
+VK_FN(VkResult, vkQueuePresentKHR, )
+VK_FN(PFN_vkVoidFunction, vkGetInstanceProcAddr, )
+VK_FN(PFN_vkVoidFunction, vkGetDeviceProcAddr, )
+VK_FN(VkResult, vkQueueSubmit, )
+VK_FN(void, vkGetDeviceQueue, )
+VK_FN(VkResult, vkCreateCommandPool, )
+VK_FN(void, vkDestroyCommandPool, )
+VK_FN(VkResult, vkAllocateCommandBuffers, )
+VK_FN(VkResult, vkBeginCommandBuffer, )
+VK_FN(VkResult, vkEndCommandBuffer, )
+VK_FN(VkResult, vkResetCommandBuffer, )
+VK_FN(VkResult, vkCreateFence, )
+VK_FN(void, vkDestroyFence, )
+VK_FN(VkResult, vkWaitForFences, )
+VK_FN(VkResult, vkResetFences, )
+VK_FN(VkResult, vkCreateRenderPass, )
+VK_FN(void, vkDestroyRenderPass, )
+VK_FN(VkResult, vkCreateImageView, )
+VK_FN(void, vkDestroyImageView, )
+VK_FN(VkResult, vkCreateFramebuffer, )
+VK_FN(void, vkDestroyFramebuffer, )
+VK_FN(VkResult, vkCreateSemaphore, )
+VK_FN(void, vkDestroySemaphore, )
+VK_FN(void, vkCmdBeginRenderPass, )
+VK_FN(void, vkCmdEndRenderPass, )
+VK_FN(VkResult, vkDeviceWaitIdle, )
+VK_FN(void, vkDestroyInstance, )
+VK_FN(void, vkGetPhysicalDeviceQueueFamilyProperties, )
+VK_FN(void, vkGetPhysicalDeviceMemoryProperties, )
+#undef VK_FN
+
+static PFN_vkCreateDevice orig_vkCreateDevice = nullptr;
+static PFN_vkCreateSwapchainKHR orig_vkCreateSwapchainKHR = nullptr;
+static PFN_vkDestroySwapchainKHR orig_vkDestroySwapchainKHR = nullptr;
+static PFN_vkQueuePresentKHR orig_vkQueuePresentKHR = nullptr;
+static PFN_vkGetDeviceProcAddr orig_vkGetDeviceProcAddr = nullptr;
+static PFN_vkGetInstanceProcAddr orig_vkGetInstanceProcAddr = nullptr;
+
+struct OverlayFrame
+{
+    VkImage image = VK_NULL_HANDLE;
+    VkImageView view = VK_NULL_HANDLE;
+    VkFramebuffer fb = VK_NULL_HANDLE;
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    VkFence fence = VK_NULL_HANDLE;
+    VkSemaphore complete = VK_NULL_HANDLE;
+};
+
+struct OverlayState
+{
+    VkInstance instance = VK_NULL_HANDLE;
+    VkPhysicalDevice phys = VK_NULL_HANDLE;
+    VkDevice device = VK_NULL_HANDLE;
+    VkQueue queue = VK_NULL_HANDLE;
+    uint32_t queueFamily = 0;
+    VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+    VkFormat format = VK_FORMAT_UNDEFINED;
+    VkExtent2D extent{0, 0};
+    VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkCommandPool cmdPool = VK_NULL_HANDLE;
+    std::vector<OverlayFrame> frames;
+    bool imguiVulkan = false;
+    uint32_t minImageCount = 2;
+};
+
+static OverlayState g_ov;
+static std::mutex g_ovMtx;
+
+static void loadVulkanProc(void *lib)
+{
+    pvkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(lib, "vkGetInstanceProcAddr");
+    pvkGetDeviceProcAddr = (PFN_vkGetDeviceProcAddr)dlsym(lib, "vkGetDeviceProcAddr");
+}
+
+static PFN_vkVoidFunction loader(const char *name, void *ud)
+{
+    auto inst = (VkInstance)ud;
+    PFN_vkVoidFunction fn = nullptr;
+    if (pvkGetDeviceProcAddr && g_ov.device)
+        fn = pvkGetDeviceProcAddr(g_ov.device, name);
+    if (!fn && pvkGetInstanceProcAddr)
+        fn = pvkGetInstanceProcAddr(inst, name);
+    if (!fn && g_vulkanLib)
+        fn = (PFN_vkVoidFunction)dlsym(g_vulkanLib, name);
+    return fn;
+}
+
+static void bindDeviceFns(VkDevice device)
+{
+#define BIND(name) p##name = (PFN_##name)pvkGetDeviceProcAddr(device, #name);
+    BIND(vkCreateSwapchainKHR)
+    BIND(vkDestroySwapchainKHR)
+    BIND(vkGetSwapchainImagesKHR)
+    BIND(vkQueuePresentKHR)
+    BIND(vkQueueSubmit)
+    BIND(vkGetDeviceQueue)
+    BIND(vkCreateCommandPool)
+    BIND(vkDestroyCommandPool)
+    BIND(vkAllocateCommandBuffers)
+    BIND(vkBeginCommandBuffer)
+    BIND(vkEndCommandBuffer)
+    BIND(vkResetCommandBuffer)
+    BIND(vkCreateFence)
+    BIND(vkDestroyFence)
+    BIND(vkWaitForFences)
+    BIND(vkResetFences)
+    BIND(vkCreateRenderPass)
+    BIND(vkDestroyRenderPass)
+    BIND(vkCreateImageView)
+    BIND(vkDestroyImageView)
+    BIND(vkCreateFramebuffer)
+    BIND(vkDestroyFramebuffer)
+    BIND(vkCreateSemaphore)
+    BIND(vkDestroySemaphore)
+    BIND(vkCmdBeginRenderPass)
+    BIND(vkCmdEndRenderPass)
+    BIND(vkDeviceWaitIdle)
+    BIND(vkDestroyDevice)
+#undef BIND
+}
+
+static void destroyOverlayLocked()
+{
+    if (!g_ov.device)
+        return;
+    if (pvkDeviceWaitIdle)
+        pvkDeviceWaitIdle(g_ov.device);
+    if (g_ov.imguiVulkan)
+    {
+        ImGui_ImplVulkan_Shutdown();
+        g_ov.imguiVulkan = false;
+    }
+    for (auto &f : g_ov.frames)
+    {
+        if (f.fb && pvkDestroyFramebuffer)
+            pvkDestroyFramebuffer(g_ov.device, f.fb, nullptr);
+        if (f.view && pvkDestroyImageView)
+            pvkDestroyImageView(g_ov.device, f.view, nullptr);
+        if (f.fence && pvkDestroyFence)
+            pvkDestroyFence(g_ov.device, f.fence, nullptr);
+        if (f.complete && pvkDestroySemaphore)
+            pvkDestroySemaphore(g_ov.device, f.complete, nullptr);
+    }
+    g_ov.frames.clear();
+    if (g_ov.renderPass && pvkDestroyRenderPass)
+        pvkDestroyRenderPass(g_ov.device, g_ov.renderPass, nullptr);
+    g_ov.renderPass = VK_NULL_HANDLE;
+    if (g_ov.cmdPool && pvkDestroyCommandPool)
+        pvkDestroyCommandPool(g_ov.device, g_ov.cmdPool, nullptr);
+    g_ov.cmdPool = VK_NULL_HANDLE;
+    g_ov.swapchain = VK_NULL_HANDLE;
+}
+
+static bool createRenderPassLocked()
+{
+    VkAttachmentDescription att{};
+    att.format = g_ov.format;
+    att.samples = VK_SAMPLE_COUNT_1_BIT;
+    att.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    att.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    att.initialLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    att.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentReference colorRef{};
+    colorRef.attachment = 0;
+    colorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription sub{};
+    sub.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    sub.colorAttachmentCount = 1;
+    sub.pColorAttachments = &colorRef;
+
+    VkSubpassDependency dep{};
+    dep.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dep.dstSubpass = 0;
+    dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.srcAccessMask = 0;
+    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+    VkRenderPassCreateInfo rp{};
+    rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    rp.attachmentCount = 1;
+    rp.pAttachments = &att;
+    rp.subpassCount = 1;
+    rp.pSubpasses = &sub;
+    rp.dependencyCount = 1;
+    rp.pDependencies = &dep;
+    return pvkCreateRenderPass(g_ov.device, &rp, nullptr, &g_ov.renderPass) == VK_SUCCESS;
+}
+
+static bool rebuildSwapchainLocked(VkSwapchainKHR sc, const VkSwapchainCreateInfoKHR *ci)
+{
+    destroyOverlayLocked();
+    g_ov.swapchain = sc;
+    if (ci)
+    {
+        g_ov.format = ci->imageFormat;
+        g_ov.extent = ci->imageExtent;
+        g_ov.minImageCount = ci->minImageCount;
+    }
+    if (g_ov.extent.width == 0 || g_ov.extent.height == 0)
+        return false;
+    if (!createRenderPassLocked())
+        return false;
+
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = g_ov.queueFamily;
+    if (pvkCreateCommandPool(g_ov.device, &poolInfo, nullptr, &g_ov.cmdPool) != VK_SUCCESS)
+        return false;
+
+    uint32_t count = 0;
+    pvkGetSwapchainImagesKHR(g_ov.device, sc, &count, nullptr);
+    if (count == 0)
+        return false;
+    std::vector<VkImage> images(count);
+    pvkGetSwapchainImagesKHR(g_ov.device, sc, &count, images.data());
+    g_ov.frames.resize(count);
+
+    std::vector<VkCommandBuffer> cmds(count);
+    VkCommandBufferAllocateInfo alloc{};
+    alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc.commandPool = g_ov.cmdPool;
+    alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc.commandBufferCount = count;
+    if (pvkAllocateCommandBuffers(g_ov.device, &alloc, cmds.data()) != VK_SUCCESS)
+        return false;
+
+    for (uint32_t i = 0; i < count; i++)
+    {
+        auto &f = g_ov.frames[i];
+        f.image = images[i];
+        f.cmd = cmds[i];
+        VkImageViewCreateInfo view{};
+        view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view.image = f.image;
+        view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view.format = g_ov.format;
+        view.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        view.subresourceRange.levelCount = 1;
+        view.subresourceRange.layerCount = 1;
+        if (pvkCreateImageView(g_ov.device, &view, nullptr, &f.view) != VK_SUCCESS)
+            return false;
+        VkFramebufferCreateInfo fb{};
+        fb.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fb.renderPass = g_ov.renderPass;
+        fb.attachmentCount = 1;
+        fb.pAttachments = &f.view;
+        fb.width = g_ov.extent.width;
+        fb.height = g_ov.extent.height;
+        fb.layers = 1;
+        if (pvkCreateFramebuffer(g_ov.device, &fb, nullptr, &f.fb) != VK_SUCCESS)
+            return false;
+        VkFenceCreateInfo fi{};
+        fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fi.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        pvkCreateFence(g_ov.device, &fi, nullptr, &f.fence);
+        VkSemaphoreCreateInfo si{};
+        si.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        pvkCreateSemaphore(g_ov.device, &si, nullptr, &f.complete);
+    }
+
+    if (!g_ov.imguiVulkan)
+    {
+        ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_0, loader, g_ov.instance);
+        ImGui_ImplVulkan_InitInfo init{};
+        memset(&init, 0, sizeof(init));
+        init.ApiVersion = VK_API_VERSION_1_0;
+        init.Instance = g_ov.instance;
+        init.PhysicalDevice = g_ov.phys;
+        init.Device = g_ov.device;
+        init.QueueFamily = g_ov.queueFamily;
+        init.Queue = g_ov.queue;
+        init.DescriptorPoolSize = 16;
+        init.MinImageCount = g_ov.minImageCount < 2 ? 2 : g_ov.minImageCount;
+        init.ImageCount = (uint32_t)g_ov.frames.size();
+        init.PipelineInfoMain.RenderPass = g_ov.renderPass;
+        init.PipelineInfoMain.Subpass = 0;
+        init.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+        init.CheckVkResultFn = [](VkResult err) {
+            if (err != VK_SUCCESS)
+                LOGE("Vulkan overlay vk error %d", (int)err);
+        };
+        if (ImGui_ImplVulkan_Init(&init))
+        {
+            g_ov.imguiVulkan = true;
+            LOGI("ImGui Vulkan backend initialized");
+        }
+        else
+        {
+            LOGE("ImGui_ImplVulkan_Init failed");
+            return false;
+        }
+    }
+    else
+    {
+        ImGui_ImplVulkan_SetMinImageCount(g_ov.minImageCount < 2 ? 2 : g_ov.minImageCount);
+        ImGui_ImplVulkan_PipelineInfo pinfo{};
+        pinfo.RenderPass = g_ov.renderPass;
+        pinfo.Subpass = 0;
+        pinfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+        ImGui_ImplVulkan_CreateMainPipeline(&pinfo);
+    }
+    return true;
+}
+
+static void ensureImguiContext(uint32_t w, uint32_t h)
+{
+    if (isInitialized)
+        return;
+    glWidth = (int)w;
+    glHeight = (int)h;
+    if (!ImGui::GetCurrentContext())
+    {
+        auto ctx = ImGui::CreateContext();
+        if (!ctx)
+            return;
+        ImGuiIO &io = ImGui::GetIO();
+        io.DisplaySize = ImVec2((float)w, (float)h);
+        io.IniFilename = nullptr;
+        ImGui_ImplAndroid_Init(nullptr);
+        io.Fonts->AddFontFromMemoryTTF(Roboto_Regular, sizeof(Roboto_Regular), 40.0f);
+        ImGui::GetStyle().ScaleAllSizes(2);
+        ImGui::GetStyle().ScrollbarSize *= 2.5f;
+        if (onInitAddr)
+            onInitAddr();
+    }
+    isInitialized = true;
+}
+
+static VkResult hooked_vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *info)
+{
+    g_vkActive = true;
+    if (!info || info->swapchainCount == 0 || !orig_vkQueuePresentKHR)
+        return orig_vkQueuePresentKHR ? orig_vkQueuePresentKHR(queue, info) : VK_ERROR_DEVICE_LOST;
+
+    std::lock_guard<std::mutex> lock(g_ovMtx);
+    if (!g_ov.device || !g_ov.imguiVulkan || g_ov.frames.empty() || !menuAddress)
+        return orig_vkQueuePresentKHR(queue, info);
+
+    uint32_t idx = info->pImageIndices[0];
+    if (idx >= g_ov.frames.size())
+        return orig_vkQueuePresentKHR(queue, info);
+
+    auto &f = g_ov.frames[idx];
+    uint32_t w = g_ov.extent.width;
+    uint32_t h = g_ov.extent.height;
+    glWidth = (int)w;
+    glHeight = (int)h;
+    static bool initialScreenSet = false;
+    if (!initialScreenSet)
+    {
+        initialScreenSize.x = (float)w;
+        initialScreenSize.y = (float)h;
+        initialScreenSet = true;
+    }
+    ensureImguiContext(w, h);
+
+    pvkWaitForFences(g_ov.device, 1, &f.fence, VK_TRUE, UINT64_MAX);
+    pvkResetFences(g_ov.device, 1, &f.fence);
+    pvkResetCommandBuffer(f.cmd, 0);
+
+    ImGuiIO &io = ImGui::GetIO();
+    io.DisplaySize = ImVec2((float)w, (float)h);
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplAndroid_NewFrame();
+    ImGui::NewFrame();
+    ImGui::SetNextWindowSize(ImVec2((float)w / 2, (float)h / 2), ImGuiCond_Once);
+    menuAddress();
+    ImGui::Render();
+
+    VkCommandBufferBeginInfo begin{};
+    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    pvkBeginCommandBuffer(f.cmd, &begin);
+
+    VkRenderPassBeginInfo rp{};
+    rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    rp.renderPass = g_ov.renderPass;
+    rp.framebuffer = f.fb;
+    rp.renderArea.extent = g_ov.extent;
+    pvkCmdBeginRenderPass(f.cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), f.cmd);
+    pvkCmdEndRenderPass(f.cmd);
+    pvkEndCommandBuffer(f.cmd);
+
+    VkSubmitInfo submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &f.cmd;
+    // Same-queue in-order submit: overlay finishes before the original present.
+    pvkQueueSubmit(queue, 1, &submit, f.fence);
+
+    return orig_vkQueuePresentKHR(queue, info);
+}
+
+static VkResult hooked_vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *ci, const VkAllocationCallbacks *a,
+                                            VkSwapchainKHR *out)
+{
+    VkResult r = orig_vkCreateSwapchainKHR(device, ci, a, out);
+    if (r == VK_SUCCESS && out && *out)
+    {
+        std::lock_guard<std::mutex> lock(g_ovMtx);
+        g_ov.device = device;
+        rebuildSwapchainLocked(*out, ci);
+        LOGI("Vulkan swapchain overlay rebuilt %ux%u", ci->imageExtent.width, ci->imageExtent.height);
+    }
+    return r;
+}
+
+static void hooked_vkDestroySwapchainKHR(VkDevice device, VkSwapchainKHR sc, const VkAllocationCallbacks *a)
+{
+    {
+        std::lock_guard<std::mutex> lock(g_ovMtx);
+        if (sc == g_ov.swapchain)
+            destroyOverlayLocked();
+    }
+    if (orig_vkDestroySwapchainKHR)
+        orig_vkDestroySwapchainKHR(device, sc, a);
+}
+
+static VkResult hooked_vkCreateDevice(VkPhysicalDevice phys, const VkDeviceCreateInfo *ci, const VkAllocationCallbacks *a,
+                                      VkDevice *out)
+{
+    VkResult r = orig_vkCreateDevice(phys, ci, a, out);
+    if (r == VK_SUCCESS && out && *out)
+    {
+        std::lock_guard<std::mutex> lock(g_ovMtx);
+        g_ov.phys = phys;
+        g_ov.device = *out;
+        bindDeviceFns(*out);
+        g_ov.queueFamily = 0;
+        if (ci && ci->queueCreateInfoCount > 0)
+            g_ov.queueFamily = ci->pQueueCreateInfos[0].queueFamilyIndex;
+        pvkGetDeviceQueue = pvkGetDeviceQueue ? pvkGetDeviceQueue
+                                              : (PFN_vkGetDeviceQueue)pvkGetDeviceProcAddr(*out, "vkGetDeviceQueue");
+        if (pvkGetDeviceQueue)
+            pvkGetDeviceQueue(*out, g_ov.queueFamily, 0, &g_ov.queue);
+        LOGI("Vulkan device captured queueFamily=%u", g_ov.queueFamily);
+    }
+    return r;
+}
+
+static PFN_vkVoidFunction hooked_vkGetDeviceProcAddr(VkDevice device, const char *name)
+{
+    if (name)
+    {
+        if (strcmp(name, "vkQueuePresentKHR") == 0)
+            return (PFN_vkVoidFunction)hooked_vkQueuePresentKHR;
+        if (strcmp(name, "vkCreateSwapchainKHR") == 0)
+            return (PFN_vkVoidFunction)hooked_vkCreateSwapchainKHR;
+        if (strcmp(name, "vkDestroySwapchainKHR") == 0)
+            return (PFN_vkVoidFunction)hooked_vkDestroySwapchainKHR;
+    }
+    return orig_vkGetDeviceProcAddr ? orig_vkGetDeviceProcAddr(device, name) : nullptr;
+}
+
+static PFN_vkVoidFunction hooked_vkGetInstanceProcAddr(VkInstance instance, const char *name)
+{
+    if (instance)
+        g_ov.instance = instance;
+    if (name)
+    {
+        if (strcmp(name, "vkGetDeviceProcAddr") == 0)
+            return (PFN_vkVoidFunction)hooked_vkGetDeviceProcAddr;
+        if (strcmp(name, "vkCreateDevice") == 0)
+            return (PFN_vkVoidFunction)hooked_vkCreateDevice;
+        if (strcmp(name, "vkQueuePresentKHR") == 0)
+            return (PFN_vkVoidFunction)hooked_vkQueuePresentKHR;
+        if (strcmp(name, "vkCreateSwapchainKHR") == 0)
+            return (PFN_vkVoidFunction)hooked_vkCreateSwapchainKHR;
+    }
+    return orig_vkGetInstanceProcAddr ? orig_vkGetInstanceProcAddr(instance, name) : nullptr;
+}
+
+void initVulkanHooks()
+{
+    if (g_hooksInstalled.exchange(true))
+        return;
+    g_vulkanLib = dlopen(OBFUSCATE("libvulkan.so"), RTLD_NOW | RTLD_NOLOAD);
+    if (!g_vulkanLib)
+        g_vulkanLib = dlopen(OBFUSCATE("libvulkan.so"), RTLD_NOW);
+    if (!g_vulkanLib)
+    {
+        LOGI("libvulkan.so not loaded — skipping Vulkan overlay hooks");
+        g_hooksInstalled = false;
+        return;
+    }
+    loadVulkanProc(g_vulkanLib);
+    auto gipa = dlsym(g_vulkanLib, OBFUSCATE("vkGetInstanceProcAddr"));
+    auto gdpa = dlsym(g_vulkanLib, OBFUSCATE("vkGetDeviceProcAddr"));
+    auto createDev = dlsym(g_vulkanLib, OBFUSCATE("vkCreateDevice"));
+    auto present = dlsym(g_vulkanLib, OBFUSCATE("vkQueuePresentKHR"));
+    auto createSc = dlsym(g_vulkanLib, OBFUSCATE("vkCreateSwapchainKHR"));
+    auto destroySc = dlsym(g_vulkanLib, OBFUSCATE("vkDestroySwapchainKHR"));
+
+    if (gipa)
+        DobbyHook(gipa, (void *)hooked_vkGetInstanceProcAddr, (void **)&orig_vkGetInstanceProcAddr);
+    if (gdpa)
+        DobbyHook(gdpa, (void *)hooked_vkGetDeviceProcAddr, (void **)&orig_vkGetDeviceProcAddr);
+    if (createDev)
+        DobbyHook(createDev, (void *)hooked_vkCreateDevice, (void **)&orig_vkCreateDevice);
+    if (present)
+        DobbyHook(present, (void *)hooked_vkQueuePresentKHR, (void **)&orig_vkQueuePresentKHR);
+    if (createSc)
+        DobbyHook(createSc, (void *)hooked_vkCreateSwapchainKHR, (void **)&orig_vkCreateSwapchainKHR);
+    if (destroySc)
+        DobbyHook(destroySc, (void *)hooked_vkDestroySwapchainKHR, (void **)&orig_vkDestroySwapchainKHR);
+
+    orig_vkGetInstanceProcAddr = orig_vkGetInstanceProcAddr ? orig_vkGetInstanceProcAddr : pvkGetInstanceProcAddr;
+    orig_vkGetDeviceProcAddr = orig_vkGetDeviceProcAddr ? orig_vkGetDeviceProcAddr : pvkGetDeviceProcAddr;
+    LOGI("Vulkan overlay hooks installed");
+}
+
+bool isVulkanOverlayActive()
+{
+    return g_vkActive.load();
+}

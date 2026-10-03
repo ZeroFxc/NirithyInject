@@ -134,13 +134,14 @@ namespace Frida
 
             if (!Il2cpp::GetIsMethodStatic(hookerData->method))
             {
-                auto thiz = context->get_nth_argument<Il2CppObject *>(0);
-                // int idx = 0;
-                if (thiz)
+                auto klass = hookerData->method->getClass();
+                if (klass && !Il2cpp::GetClassIsValueType(klass) && !Il2cpp::GetClassIsEnum(klass))
                 {
-                    HookerData::collectSet[hookerData->method->getClass()].emplace(thiz);
-                    // idx++;
+                    auto thiz = context->get_nth_argument<Il2CppObject *>(0);
+                    if (thiz && thiz->klass)
+                        HookerData::collectSet[klass].emplace(thiz);
                 }
+            }
                 // auto paramsInfo = hookerData->method->getParamsInfo();
                 // for (int i = 0; i < paramsInfo.size(); i++)
                 // {

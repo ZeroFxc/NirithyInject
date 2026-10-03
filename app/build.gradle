@@ -3,12 +3,18 @@ android {
     namespace "imgui.il2cpp.tool"
     compileSdkVersion 30
     defaultConfig {
-        // applicationId "com.android.support"
         minSdkVersion 21
         targetSdkVersion 30
         versionCode 1
         versionName "3.2"
-        // signingConfig signingConfigs.debug
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
+        externalNativeBuild {
+            cmake {
+                abiFilters 'arm64-v8a', 'armeabi-v7a'
+            }
+        }
     }
     ndkVersion "30.0.16248370"
     buildTypes {
@@ -21,8 +27,7 @@ android {
         debug {
             minifyEnabled false
             ndk {
-                abiFilters 'arm64-v8a'
-                // abiFilters 'armeabi-v7a'
+                abiFilters 'arm64-v8a', 'armeabi-v7a'
             }
         }
     }
@@ -63,13 +68,10 @@ def getPackageName() {
     if (packageNameList.empty) throw new GradleException("package_name.txt is empty")
 
     def package_name = packageNameList[0]
-//    project.extensions.package_name = package_name
     return package_name
 }
 
 def getPackagePath(String packageName) {
-//    def packageName = project.extensions.package_name
-//    def packageName = "com.dxx.firenow"
     def output = new ByteArrayOutputStream()
     exec {
         commandLine android.adbExecutable, "shell", "pm", "path", "${packageName}"
@@ -81,12 +83,10 @@ def getPackagePath(String packageName) {
     def apkPath = pathParts[1]
 
     def package_path = apkPath.split("/")[0..-2].join("/") + "/"
-//    project.extensions.package_path = package_path
     return package_path
 }
 
 def getPackageLibPath(String packagePath) {
-//    def packagePath = project.extensions.package_path
     def output = new ByteArrayOutputStream()
     def command = [android.adbExecutable, "shell", "ls", "${packagePath}/lib"]
     def result = exec {
@@ -97,7 +97,6 @@ def getPackageLibPath(String packagePath) {
     if (result.exitValue != 0) throw new GradleException("Failed to get package lib path\ncommand : ${command.join(" ")}\nFailed with exit code : ${result.exitValue}")
 
     def package_lib_path = "${packagePath}lib/${output}".toString()
-//    project.extensions.package_lib_path = package_lib_path;
     return package_lib_path
 }
 
@@ -122,7 +121,6 @@ task copyApk {
             throw new GradleException("No apk found")
         }
 
-        // Sort the APK files by modification date (newest first)
         apks = apks.sort { it.lastModified() }.reverse()
 
         def src = apks[0]
@@ -196,17 +194,88 @@ task sendToPhoneAndRestart {
     }
 }
 
+// Assemble a flashable Zygisk/KernelSU module zip:
+//   zygisk/arm64-v8a.so, zygisk/armeabi-v7a.so  (renamed libTool.so)
+//   webroot/  (KernelSU WebUI)
+//   module.prop, service.sh, post-fs-data.sh
+def nativeLibDir(String flavor) {
+    def candidates = [
+            layout.buildDirectory.dir("intermediates/stripped_native_libs/${flavor}/strip${flavor.capitalize()}DebugSymbols/out/lib").get().asFile,
+            layout.buildDirectory.dir("intermediates/stripped_native_libs/${flavor}/out/lib").get().asFile,
+            layout.buildDirectory.dir("intermediates/cmake/${flavor}/obj").get().asFile,
+    ]
+    return candidates.find { it.exists() }
+}
+
+task assembleZygiskModule {
+    group = "build"
+    description = "Pack libTool.so (both ABIs) + WebUI into a flashable Zygisk zip"
+    doLast {
+        def flavor = project.hasProperty("release") ? "release" : "debug"
+        def libRoot = nativeLibDir(flavor)
+        if (libRoot == null || !libRoot.exists()) {
+            throw new GradleException("Native libs not found for flavor ${flavor}. Run assembleDebug/assembleRelease first.")
+        }
+        def staging = layout.buildDirectory.dir("zygisk-module").get().asFile
+        delete staging
+        staging.mkdirs()
+
+        copy {
+            from rootProject.file("zygisk-module")
+            into staging
+            exclude "zygisk"
+        }
+
+        def webuiDist = rootProject.file("webui/dist")
+        def webrootSrc = rootProject.file("zygisk-module/webroot")
+        if (webuiDist.exists()) {
+            copy {
+                from webuiDist
+                into new File(staging, "webroot")
+            }
+        } else if (webrootSrc.exists()) {
+            copy {
+                from webrootSrc
+                into new File(staging, "webroot")
+            }
+        }
+
+        def zygiskDir = new File(staging, "zygisk")
+        zygiskDir.mkdirs()
+        ["arm64-v8a", "armeabi-v7a"].each { abi ->
+            def so = new File(libRoot, "${abi}/libTool.so")
+            if (!so.exists()) {
+                // cmake obj layout: abi/libTool.so
+                so = fileTree(libRoot).matching { include "**/${abi}/**/libTool.so" }.files.find { true }
+            }
+            if (so == null || !so.exists()) {
+                logger.warn("Missing libTool.so for ${abi} — zip will omit that ABI")
+                return
+            }
+            ant.copy(file: so, tofile: new File(zygiskDir, "${abi}.so"))
+        }
+        if (fileTree(zygiskDir).files.isEmpty()) {
+            throw new GradleException("No libTool.so copied into zygisk/")
+        }
+
+        def outDir = rootProject.file("out/${flavor}")
+        outDir.mkdirs()
+        def zipFile = new File(outDir, "il2cpp-tool-zygisk-${flavor}.zip")
+        if (zipFile.exists()) zipFile.delete()
+        ant.zip(destfile: zipFile) {
+            fileset(dir: staging)
+        }
+        println("Zygisk module zip: ${zipFile.absolutePath}")
+    }
+}
+
 tasks.configureEach { task ->
     if (task.name == "assembleDebug" || task.name == "assembleRelease") {
         def flavor = task.name.substring(8).toLowerCase()
 
-
-
         def libName = "libTool.so"
         def libPath = new File("${layout.buildDirectory.dir("intermediates/stripped_native_libs/$flavor/out/lib").get().asFile.absolutePath}")
         def dst = project.file("../out/${flavor}")
-        //copy everything in libPath to dst
-
 
         task.doLast {
             copy {
@@ -214,7 +283,6 @@ tasks.configureEach { task ->
                 into dst
             }
 
-            // def debugDexpath = new File("${layout.buildDirectory.dir("intermediates/dex/debug/mergeDexDebug").get().asFile.absolutePath}")
             def releaseDexPath = new File("${layout.buildDirectory.dir("intermediates/dex/release/minifyReleaseWithR8").get().asFile.absolutePath}")
             if (flavor == "release") {
                 copy {
@@ -223,6 +291,8 @@ tasks.configureEach { task ->
                 }
             }
         }
+
+        task.finalizedBy("assembleZygiskModule")
 
         if (project.hasProperty("send") || project.hasProperty("s")) {
             task.finalizedBy(sendToPhone)
