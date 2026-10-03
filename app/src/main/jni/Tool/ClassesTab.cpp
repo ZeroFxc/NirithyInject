@@ -17,6 +17,7 @@
 
 extern std::vector<Il2CppImage *> g_Images;
 extern Il2CppImage *g_Image;
+extern bool saferInspector;
 
 constexpr int MAX_CLASSES = 500;
 
@@ -1802,6 +1803,9 @@ void ensureIfValueType(Il2CppObject *currentObj, std::vector<std::string> &paths
 {
     if (currentObj == rootObj)
         return;
+    // 更安全模式：跳过值类型写回，避免潜在的崩溃
+    if (saferInspector)
+        return;
     bool isValueType = Il2cpp::GetClassType(currentObj->klass)->isValueType();
     if (isValueType)
     {
@@ -1922,7 +1926,8 @@ void ClassesTab::ImGuiJson(Il2CppObject *rootObj)
     }
     ImGui::SameLine();
     ImGui::Checkbox(Lang::T("始终刷新", "Always refresh"), &alwaysRefreshInspector);
-    if (alwaysRefreshInspector)
+    // 更安全模式：禁用自动刷新，避免深度遍历导致卡顿/崩溃
+    if (alwaysRefreshInspector && !saferInspector)
         doRefresh = true;
     if (doRefresh)
     {

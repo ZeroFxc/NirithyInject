@@ -71,6 +71,9 @@ bool twoFingerScroll = true;
 // Touch Passthrough：开启后不拦截触摸事件，直接传递给游戏
 bool touchPassthrough = false;
 
+// Safer Inspector：更安全的检查模式（较慢）
+bool saferInspector = false;
+
 constexpr std::array<const char *, 7> possibleScale = {
     "Smallest", "Smaller", "Small", "Default", "Large", "Larger", "Largest",
 };
@@ -343,6 +346,8 @@ void draw_thread()
             {
                 ImGui::TextDisabled("%s", Lang::T("临时方案：触摸事件未传递到游戏时启用", "Temporary fix if touches are not reaching the game"));
             }
+            if (ImGui::Checkbox(Lang::T("更安全的检查器（较慢）", "Safer Inspector (slower)"), &saferInspector))
+                ConfigSet("saferInspector", saferInspector);
             ImGui::Separator();
             auto preview = possibleScale[selectedScale];
             if (ImGui::BeginCombo(Lang::T("缩放##Global", "Scale##Global"), preview))
@@ -651,6 +656,7 @@ void on_init()
     tabShowSettings = ConfigGet<bool>("tabShowSettings", true);
     twoFingerScroll = ConfigGet<bool>("twoFingerScroll", true);
     touchPassthrough = ConfigGet<bool>("touchPassthrough", false);
+    saferInspector = ConfigGet<bool>("saferInspector", false);
     if (selectedScale < 0 || selectedScale >= scaleFactors.size())
     {
         selectedScale = 3;
