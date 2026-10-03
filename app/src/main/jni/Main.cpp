@@ -63,6 +63,9 @@ bool tabShowTracer = true;
 bool tabShowDumper = true;
 bool tabShowSettings = true;
 
+// 双指滚动开关
+bool twoFingerScroll = true;
+
 constexpr std::array<const char *, 7> possibleScale = {
     "Smallest", "Smaller", "Small", "Default", "Large", "Larger", "Largest",
 };
@@ -290,6 +293,8 @@ void draw_thread()
                 ConfigSet("tabShowDumper", tabShowDumper);
             if (ImGui::Checkbox(Lang::T("设置", "Settings"), &tabShowSettings))
                 ConfigSet("tabShowSettings", tabShowSettings);
+            if (ImGui::Checkbox(Lang::T("双指滚动", "Two-finger scroll"), &twoFingerScroll))
+                ConfigSet("twoFingerScroll", twoFingerScroll);
             ImGui::Separator();
             auto preview = possibleScale[selectedScale];
             if (ImGui::BeginCombo(Lang::T("缩放##Global", "Scale##Global"), preview))
@@ -566,6 +571,7 @@ void on_init()
     tabShowTracer = ConfigGet<bool>("tabShowTracer", true);
     tabShowDumper = ConfigGet<bool>("tabShowDumper", true);
     tabShowSettings = ConfigGet<bool>("tabShowSettings", true);
+    twoFingerScroll = ConfigGet<bool>("twoFingerScroll", true);
     if (selectedScale < 0 || selectedScale >= scaleFactors.size())
     {
         selectedScale = 3;

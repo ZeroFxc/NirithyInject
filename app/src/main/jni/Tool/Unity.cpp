@@ -14,6 +14,7 @@ static bool g_inputHooked = false;
 
 extern bool collapsed;
 extern bool fullScreen;
+extern bool twoFingerScroll;
 
 bool Input_GetMouseButton(int n)
 {
@@ -52,6 +53,26 @@ int get_touchCount()
         else if (touch.m_Phase == UnityEngine_TouchPhase::Moved)
         {
             io.AddMousePosEvent(x, y);
+        }
+
+        // 双指滚动：取两指位置增量平均，转换为滚轮事件
+        if (twoFingerScroll && count >= 2)
+        {
+            try
+            {
+                auto touch1 = Input->invoke_static_method<UnityEngine_Touch>("GetTouch", 1);
+                if (touch.m_Phase == UnityEngine_TouchPhase::Moved &&
+                    touch1.m_Phase == UnityEngine_TouchPhase::Moved)
+                {
+                    float deltaY = (touch.m_PositionDelta.y + touch1.m_PositionDelta.y) * 0.5f;
+                    // Unity Y 轴向上为正，ImGui 滚轮向下为正，因此取反
+                    io.AddMouseWheelEvent(0.0f, -deltaY);
+                }
+            }
+            catch (...)
+            {
+                // 某些 Unity 版本或输入状态下 GetTouch(1) 可能失败，忽略
+            }
         }
     }
 
