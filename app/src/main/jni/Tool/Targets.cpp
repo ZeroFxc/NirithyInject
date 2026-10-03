@@ -97,6 +97,11 @@ namespace Targets
     std::vector<std::string> Load()
     {
         std::vector<std::string> out;
+        // 优先读取 WebUI 写入的权威配置 /data/adb/il2cpp_tool/targets.txt。
+        // 若该文件存在且非空，直接使用，忽略模块目录中可能残留的旧 targets.txt，
+        // 避免用户在 WebUI 取消勾选后仍因残留配置而被注入。
+        if (readFile(kConfigPath, out) && !out.empty())
+            return out;
         for (int attempt = 0; attempt < 3; attempt++)
         {
             out.clear();
