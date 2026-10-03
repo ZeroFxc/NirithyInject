@@ -2331,83 +2331,91 @@ void ClassesTab::Draw(int index, bool closeable)
             ImGui::EndPopup();
         }
         ImGui::Separator();
+        // DockSpace：类列表和类详情窗口停靠在此，支持拖拽分割/双列/浮动
+        ImGuiID dockspaceId = ImGui::GetID("ClassesDockSpace");
+        ImGui::DockSpace(dockspaceId, ImVec2(0, 0), ImGuiDockNodeFlags_PassthruCentralNode);
+
         if (!filteredClasses.empty())
         {
-            auto avail = ImGui::GetContentRegionAvail();
-            float leftWidth = sideSplit ? avail.x * 0.35f : 0.f;
-            ImGui::BeginChild("Child", sideSplit ? ImVec2(leftWidth, 0) : ImVec2(0, 0), false,
-                              ImGuiWindowFlags_HorizontalScrollbar);
-            ImGuiListClipper clipper;
-            clipper.Begin((int)filteredClasses.size());
-            while (clipper.Step())
+            // 类列表独立窗口，停靠到 DockSpace
+            char listWinId[64];
+            snprintf(listWinId, sizeof(listWinId), "类列表###ClassesList_%d", index);
+            ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
+            if (ImGui::Begin(listWinId, nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_HorizontalScrollbar))
             {
-                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
+                ImGuiListClipper clipper;
+                clipper.Begin((int)filteredClasses.size());
+                while (clipper.Step())
                 {
-                    auto klass = filteredClasses[i];
+                    for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
+                    {
+                        auto klass = filteredClasses[i];
 
-                    bool isValueType = Il2cpp::GetClassType(klass)->isValueType();
-                    int pushedColor = 0;
-                    if (isValueType)
-                    {
-                        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(222, 222, 222, 255));
-                        pushedColor++;
-                    }
-                    ImGuiTreeNodeFlags nodeFlags = ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap;
-                    if (selectedClass == klass)
-                        nodeFlags |= ImGuiTreeNodeFlags_Selected;
-                    bool collapsingHeader = ImGui::TreeNodeEx(klass->getFullName().c_str(), nodeFlags);
-                    if (ImGui::IsItemClicked())
-                        selectedClass = klass;
-                    // 钉入/移除顶部子标签卡按钮（AllowOverlap 允许按钮重叠在节点行尾）
-                    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 28);
-                    if (ImGui::SmallButton(Tool::IsClassPinned(klass) ? "x" : "+"))
-                        Tool::ToggleClassTab(klass);
-                    if (filterByMethod && ImGui::IsItemHeld(0.7f))
-                    {
-                        auto name = Util::extractClassNameFromTypename(klass->getFullName().c_str());
-                        auto &tab = Tool::OpenNewTab();
-                        tab.filter = name;
-                        tab.selectedImage = klass->getImage();
-                        tab.FilterClasses(tab.filter);
-                    }
-                    if (collapsingHeader)
-                    {
-                        if (!sideSplit)
+                        bool isValueType = Il2cpp::GetClassType(klass)->isValueType();
+                        int pushedColor = 0;
+                        if (isValueType)
                         {
-                            if (pushedColor)
-                            {
-                                ImGui::PopStyleColor(pushedColor);
-                                pushedColor = 0;
-                            }
-                            // ClassViewer 内部已按类指针 PushID/PopID，这里不再重复压栈
-                            // TODO: Rename Dump (DumpPopup and other related functions used) to Inspect
-                            ClassViewer(klass);
+                            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(222, 222, 222, 255));
+                            pushedColor++;
                         }
-                        ImGui::TreePop();
-                    }
-                    if (pushedColor)
-                    {
-                        ImGui::PopStyleColor(pushedColor);
-                        pushedColor = 0;
+                        ImGuiTreeNodeFlags nodeFlags = ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap;
+                        if (selectedClass == klass)
+                            nodeFlags |= ImGuiTreeNodeFlags_Selected;
+                        bool collapsingHeader = ImGui::TreeNodeEx(klass->getFullName().c_str(), nodeFlags);
+                        if (ImGui::IsItemClicked())
+                            selectedClass = klass;
+                        // 钉入/移除顶部子标签卡按钮（AllowOverlap 允许按钮重叠在节点行尾）
+                        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 28);
+                        if (ImGui::SmallButton(Tool::IsClassPinned(klass) ? "x" : "+"))
+                            Tool::ToggleClassTab(klass);
+                        if (filterByMethod && ImGui::IsItemHeld(0.7f))
+                        {
+                            auto name = Util::extractClassNameFromTypename(klass->getFullName().c_str());
+                            auto &tab = Tool::OpenNewTab();
+                            tab.filter = name;
+                            tab.selectedImage = klass->getImage();
+                            tab.FilterClasses(tab.filter);
+                        }
+                        if (collapsingHeader)
+                        {
+                            if (!sideSplit)
+                            {
+                                if (pushedColor)
+                                {
+                                    ImGui::PopStyleColor(pushedColor);
+                                    pushedColor = 0;
+                                }
+                                // ClassViewer 内部已按类指针 PushID/PopID，这里不再重复压栈
+                                // TODO: Rename Dump (DumpPopup and other related functions used) to Inspect
+                                ClassViewer(klass);
+                            }
+                            ImGui::TreePop();
+                        }
+                        if (pushedColor)
+                        {
+                            ImGui::PopStyleColor(pushedColor);
+                            pushedColor = 0;
+                        }
                     }
                 }
+                ImGui::ScrollWhenDraggingOnVoid();
             }
-            ImGui::ScrollWhenDraggingOnVoid();
-            ImGui::EndChild();
-            if (sideSplit)
+            ImGui::End();
+        }
+        // sideSplit：类详情独立窗口停靠到 DockSpace（双列显示）
+        if (sideSplit)
+        {
+            char detailWinId[64];
+            snprintf(detailWinId, sizeof(detailWinId), "类详情###ClassDetail_%d", index);
+            ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
+            if (ImGui::Begin(detailWinId, nullptr, ImGuiWindowFlags_NoCollapse))
             {
-                ImGui::SameLine();
-                ImGui::BeginChild("##SideRight", ImVec2(0, 0));
                 if (selectedClass)
-                {
                     ClassViewer(selectedClass);
-                }
                 else
-                {
                     ImGui::TextDisabled("%s", Lang::T("从左侧选择一个类", "Select a class on the left"));
-                }
-                ImGui::EndChild();
             }
+            ImGui::End();
         }
         ImGui::EndTabItem();
         // 方法详情卡片为独立浮动窗口，仅由拥有它的实例绘制（避免选项卡销毁后指针悬空）
