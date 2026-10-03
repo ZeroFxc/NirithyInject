@@ -61,6 +61,7 @@ int snapWindow = 0; // 0=无, 1=左上, 2=右上, 3=左下, 4=右下
 int selectedScale = 3;
 int selectedTheme = 0;
 bool neonBorder = false;
+float neonBorderColor[3] = {0.0f, 0.95f, 1.0f};
 int fpsLimit = 0;
 
 extern int g_fpsLimit;
@@ -454,6 +455,17 @@ void draw_thread()
                 ConfigSet("neonBorder", neonBorder);
                 doChangeScale = true;
             }
+            if (neonBorder)
+            {
+                ImGui::SameLine();
+                if (ImGui::ColorEdit3(Lang::T("边框颜色", "Border color"), neonBorderColor))
+                {
+                    ConfigSet("neonBorderR", neonBorderColor[0]);
+                    ConfigSet("neonBorderG", neonBorderColor[1]);
+                    ConfigSet("neonBorderB", neonBorderColor[2]);
+                    doChangeScale = true;
+                }
+            }
             ImGui::Text("%s", Lang::T("最大帧率", "Max FPS"));
             ImGui::SameLine();
             ImGui::SetNextItemWidth(120);
@@ -729,6 +741,9 @@ void on_init()
         selectedScale = ConfigGet<int>("selectedScale", selectedScale);
         selectedTheme = ConfigGet<int>("theme", 0);
         neonBorder = ConfigGet<bool>("neonBorder", false);
+        neonBorderColor[0] = ConfigGet<float>("neonBorderR", 0.0f);
+        neonBorderColor[1] = ConfigGet<float>("neonBorderG", 0.95f);
+        neonBorderColor[2] = ConfigGet<float>("neonBorderB", 1.0f);
         doChangeScale = true;
         return;
     }
@@ -764,6 +779,9 @@ void on_init()
     saferInspector = ConfigGet<bool>("saferInspector", false);
     sideSplit = ConfigGet<bool>("sideSplit", false);
     neonBorder = ConfigGet<bool>("neonBorder", false);
+    neonBorderColor[0] = ConfigGet<float>("neonBorderR", 0.0f);
+    neonBorderColor[1] = ConfigGet<float>("neonBorderG", 0.95f);
+    neonBorderColor[2] = ConfigGet<float>("neonBorderB", 1.0f);
     if (selectedScale < 0 || selectedScale >= scaleFactors.size())
     {
         selectedScale = 3;

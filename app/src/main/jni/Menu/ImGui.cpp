@@ -557,15 +557,16 @@ void menuStyle(int theme)
         break;
     }
 
-    // 霓虹边框（可选开关）：青色发光边框，增强视觉辨识度
+    // 霓虹边框（可选开关）：自定义颜色发光边框
     extern bool neonBorder;
+    extern float neonBorderColor[3];
     if (neonBorder)
     {
         style.WindowBorderSize = 2.0f;
         style.ChildBorderSize = 1.5f;
         style.PopupBorderSize = 1.5f;
-        style.Colors[ImGuiCol_Border] = ImVec4(0.0f, 0.95f, 1.0f, 0.90f);
-        style.Colors[ImGuiCol_BorderShadow] = ImVec4(0.0f, 0.95f, 1.0f, 0.50f);
+        style.Colors[ImGuiCol_Border] = ImVec4(neonBorderColor[0], neonBorderColor[1], neonBorderColor[2], 0.90f);
+        style.Colors[ImGuiCol_BorderShadow] = ImVec4(neonBorderColor[0], neonBorderColor[1], neonBorderColor[2], 0.50f);
     }
 
     // 未选中 tab 统一调暗，增强选中/未选中的层级区分
