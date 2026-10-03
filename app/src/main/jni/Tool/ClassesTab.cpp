@@ -773,7 +773,9 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
         sprintf(thisLabel, "%s this", Il2cpp::GetClassType(klass)->getName());
         if (!thisParam.value.empty())
         {
-            sprintf(thisLabel, "%s = %s", thisLabel, thisParam.value.c_str());
+            char tmp[256]{0};
+            snprintf(tmp, sizeof(tmp), "%s = %s", thisLabel, thisParam.value.c_str());
+            snprintf(thisLabel, sizeof(thisLabel), "%s", tmp);
         }
         if (ImGui::Button(thisLabel))
         {
@@ -826,7 +828,9 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
         sprintf(buttonLabel, "%s %s", type->getName(), name);
         if (!param.value.empty())
         {
-            sprintf(buttonLabel, "%s = %s", buttonLabel, param.value.c_str());
+            char tmp[256]{0};
+            snprintf(tmp, sizeof(tmp), "%s = %s", buttonLabel, param.value.c_str());
+            snprintf(buttonLabel, sizeof(buttonLabel), "%s", tmp);
         }
         ImGui::PushID(k);
         if (ImGui::Button(buttonLabel))
@@ -1348,7 +1352,7 @@ void ClassesTab::PatcherView(Il2CppClass *klass, MethodInfo *method, const Metho
         }
         else
         {
-            sprintf(label, "%s", type->getName());
+            snprintf(label, sizeof(label), "%s", type->getName());
         }
         if (ImGui::Button(label))
         {
@@ -2115,13 +2119,13 @@ void ClassesTab::Draw(int index, bool closeable)
     }
     else if (filter.empty())
     {
-        sprintf(tabLabel, "Classes");
+        snprintf(tabLabel, sizeof(tabLabel), "Classes");
         if (index >= 0)
-            sprintf(tabLabel, "Classes [%d]", index + 1);
+            snprintf(tabLabel, sizeof(tabLabel), "Classes [%d]", index + 1);
     }
     else
     {
-        sprintf(tabLabel, "%s", filter.c_str());
+        snprintf(tabLabel, sizeof(tabLabel), "%s", filter.c_str());
     }
 
     if ((currentlyOpened = ImGui::BeginTabItem(tabLabel, closeable ? &opened : nullptr,
