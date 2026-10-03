@@ -54,6 +54,7 @@ set(LOCAL_SRC_FILES
         Tool/Unity.cpp
         Tool/TextureCache.cpp
         Tool/Targets.cpp
+        Script/Script.cpp
         Zygisk/ZygiskModule.cpp
         Includes/Utils.cpp
         Includes/Logger.cpp
@@ -68,6 +69,38 @@ set(LOCAL_SRC_FILES
         Il2cpp/xdl/xdl_linker.c
         Il2cpp/xdl/xdl_lzma.c
         Il2cpp/xdl/xdl_util.c
+        lua/lapi.c
+        lua/lauxlib.c
+        lua/lbaselib.c
+        lua/lcode.c
+        lua/lcorolib.c
+        lua/lctype.c
+        lua/ldblib.c
+        lua/ldebug.c
+        lua/ldo.c
+        lua/ldump.c
+        lua/lfunc.c
+        lua/lgc.c
+        lua/linit.c
+        lua/liolib.c
+        lua/llex.c
+        lua/lmathlib.c
+        lua/lmem.c
+        lua/loadlib.c
+        lua/lobject.c
+        lua/lopcodes.c
+        lua/loslib.c
+        lua/lparser.c
+        lua/lstate.c
+        lua/lstring.c
+        lua/lstrlib.c
+        lua/ltable.c
+        lua/ltablib.c
+        lua/ltm.c
+        lua/lundump.c
+        lua/lutf8lib.c
+        lua/lvm.c
+        lua/lzio.c
 )
 
 include_directories(${SRC_DIR})

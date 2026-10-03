@@ -9,6 +9,7 @@
 #include "Includes/obfuscate.h"
 #include "Menu/ImGui.h"
 #include "Menu/VulkanHook.h"
+#include "Script/Script.h"
 #include "Tool/Keyboard.h"
 #include "Tool/Lang.h"
 #include "Tool/Memory.h"
@@ -644,6 +645,32 @@ T ConfigGet(const char *key, T defaultValue)
     return defaultValue;
 }
 
+// 以 JSON 文本形式读取全局配置（供脚本引擎等其它编译单元使用）
+// key: 配置键
+// 返回：配置值的 JSON 文本，键不存在时返回 "null"
+std::string ConfigGetJson(const char *key)
+{
+    if (gConf.contains(key))
+        return gConf[key].dump();
+    return "null";
+}
+
+// 以 JSON 文本形式写入全局配置并持久化到 tool_conf.json
+// key: 配置键；jsonValue: JSON 文本形式的取值
+// 解析失败时不修改配置
+void ConfigSetJson(const char *key, const char *jsonValue)
+{
+    try
+    {
+        gConf[key] = nlohmann::json::parse(jsonValue);
+        SaveGlobalConfig();
+    }
+    catch (nlohmann::json::exception &e)
+    {
+        LOGE("ConfigSetJson error : %s", e.what());
+    }
+}
+
 void ConfigInit()
 {
     Util::FileReader fileReader("tool_conf.json");
@@ -704,6 +731,8 @@ void on_init()
 
     initialStyle = ImGui::GetStyle();
     ConfigInit();
+    // 初始化 Lua 脚本引擎（注册宿主 C API）
+    Script::Init();
     selectedScale = ConfigGet<int>("selectedScale", selectedScale);
     selectedTheme = ConfigGet<int>("theme", 0);
     Lang::current = ConfigGet<int>("lang", 0);
