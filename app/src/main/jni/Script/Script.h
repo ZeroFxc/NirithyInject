@@ -24,6 +24,14 @@ namespace Script
     // 绘制脚本选项卡内容：多行编辑框、执行按钮与日志区
     void Draw();
 
+    // 供钩子监听器调用：执行 registry 中 callbackRef 对应的 Lua 回调
+    // 参数：callbackRef Lua registry 回调引用；context Frida::HookContext*
+    // 返回：true 表示回调执行成功
+    bool InvokeHookCallback(int callbackRef, void *context);
+
+    // 释放 InvokeHookCallback 使用的 registry 回调引用
+    void ReleaseHookCallback(int callbackRef);
+
     // 关闭引擎并释放 Lua 状态机
     void Shutdown();
 } // namespace Script

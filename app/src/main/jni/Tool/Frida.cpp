@@ -3,6 +3,7 @@
 #include "Frida/gumpp/gumpp.hpp"
 #include "Il2cpp/Il2cpp.h"
 #include "Il2cpp/il2cpp-class.h"
+#include "Script/Script.h"
 #include "Tool/Tool.h"
 
 // extern std::unordered_map<void *, HookerData> hookerMap;
@@ -239,6 +240,39 @@ namespace Frida
         }
     };
 
+    // Lua 钩子数据：被挂钩方法与其回调在 Lua registry 中的引用
+    struct LuaHookData
+    {
+        MethodInfo *method = nullptr;
+        int callbackRef = -1;
+    };
+
+    // Lua 钩子监听器：进入方法时整理实参并交由脚本引擎执行 Lua 回调
+    class LuaHookListener : public Gum::InvocationListener
+    {
+      public:
+        virtual void on_enter(Gum::InvocationContext *context)
+        {
+            auto data = context->get_listener_function_data<LuaHookData>();
+            if (!data || !data->method)
+                return;
+
+            const bool isStatic = Il2cpp::GetIsMethodStatic(data->method);
+            const int argCount = (int)Il2cpp::GetMethodParamCount(data->method) + (isStatic ? 0 : 1);
+            std::vector<void *> args;
+            args.reserve(argCount);
+            for (int i = 0; i < argCount; i++)
+                args.push_back(context->get_nth_argument_ptr(i));
+
+            HookContext ctx{data->method, args.empty() ? nullptr : args.data(), argCount};
+            Script::InvokeHookCallback(data->callbackRef, &ctx);
+        }
+
+        virtual void on_leave(Gum::InvocationContext *context)
+        {
+        }
+    };
+
     Gum::RefPtr<Gum::Interceptor> interceptor;
     TraceListener *traceListener;
     std::unordered_map<void *, std::unique_ptr<TraceListener>> traceListeners;
@@ -279,5 +313,69 @@ namespace Frida
     bool isTraced(MethodInfo *method)
     {
         return traceListeners.find(method->methodPointer) != traceListeners.end();
+    }
+
+    // 已注册的 Lua 钩子：句柄 -> 条目
+    struct LuaHookEntry
+    {
+        MethodInfo *method = nullptr;
+        int callbackRef = -1;
+        std::unique_ptr<LuaHookListener> listener;
+        std::unique_ptr<LuaHookData> data;
+    };
+
+    std::unordered_map<int, LuaHookEntry> luaHooks;
+    int luaHookNextId = 1;
+
+    int HookLua(MethodInfo *method, int callbackRef)
+    {
+        if (!method || !method->methodPointer || callbackRef < 0)
+            return 0;
+
+        if (!interceptor)
+            Init();
+
+        // 同一方法重复挂钩时先解除旧钩子，避免重复插桩
+        std::vector<int> stale;
+        for (const auto &[id, entry] : luaHooks)
+        {
+            if (entry.method == method)
+                stale.push_back(id);
+        }
+        for (int id : stale)
+            UnhookLua(id);
+
+        LuaHookEntry entry;
+        entry.method = method;
+        entry.callbackRef = callbackRef;
+        entry.listener = std::make_unique<LuaHookListener>();
+        entry.data = std::make_unique<LuaHookData>();
+        entry.data->method = method;
+        entry.data->callbackRef = callbackRef;
+
+        if (!interceptor->attach(method->methodPointer, entry.listener.get(), entry.data.get()))
+        {
+            LOGE("Failed to hook lua callback: %s::%s", method->getClass()->getName(), method->getName());
+            return 0;
+        }
+
+        const int id = luaHookNextId++;
+        luaHooks.emplace(id, std::move(entry));
+        LOGI("Lua hook #%d attached to %s::%s", id, method->getClass()->getName(), method->getName());
+        return id;
+    }
+
+    bool UnhookLua(int id)
+    {
+        auto it = luaHooks.find(id);
+        if (it == luaHooks.end())
+            return false;
+
+        if (interceptor && it->second.listener)
+            interceptor->detach(it->second.listener.get());
+        // 释放 Lua registry 引用，避免回调函数被永久持有
+        Script::ReleaseHookCallback(it->second.callbackRef);
+        luaHooks.erase(it);
+        return true;
     }
 } // namespace Frida
