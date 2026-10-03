@@ -7,6 +7,8 @@ const TARGETS_FILE = '/data/adb/il2cpp_tool/targets.txt';
 const TARGETS_DIR = '/data/adb/il2cpp_tool';
 /** 文件不存在或为空时写入的默认注释头 */
 const DEFAULT_COMMENT = '# One package name per line. Edited by the KernelSU WebUI.';
+/** 注入诊断日志文件，由 JNI 层在注入过程中追加写入 */
+const INJECT_LOG_FILE = '/data/adb/il2cpp_tool/inject.log';
 /** 命令执行超时（毫秒）：管理器回调未触发时避免界面永久卡住 */
 const EXEC_TIMEOUT_MS = 8000;
 /** 包名格式：至少包含一个点，仅允许字母、数字、下划线和点 */
@@ -52,6 +54,9 @@ const inputEl = byId<HTMLInputElement>('pkgInput');
 const addEl = byId<HTMLButtonElement>('btnAdd');
 const refreshEl = byId<HTMLButtonElement>('btnRefresh');
 const toastEl = byId<HTMLDivElement>('toast');
+const logBoxEl = byId<HTMLDivElement>('logBox');
+const logEmptyEl = byId<HTMLDivElement>('logEmpty');
+const logRefreshEl = byId<HTMLButtonElement>('btnLogRefresh');
 
 let toastTimer = 0;
 
@@ -102,6 +107,28 @@ function toBase64(text: string): string {
     binary += String.fromCharCode(byte);
   }
   return btoa(binary);
+}
+
+/**
+ * base64 转 UTF-8 字符串，自动忽略换行等空白字符
+ * @param text base64 编码文本
+ * @returns 解码后的文本，输入非法时返回空字符串（不抛异常）
+ */
+function fromBase64(text: string): string {
+  try {
+    const clean = text.replace(/\s+/g, '');
+    if (clean === '') {
+      return '';
+    }
+    const binary = atob(clean);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -180,6 +207,61 @@ async function load(): Promise<void> {
   render();
 }
 
+/**
+ * 按行渲染注入日志，并切换日志区与空提示的显隐
+ * @param text 日志文件内容
+ */
+function renderLog(text: string): void {
+  logBoxEl.textContent = '';
+  const lines = text.split('\n');
+  // 去掉末尾空行，避免文件结尾换行产生空白行
+  while (lines.length > 0 && lines[lines.length - 1] === '') {
+    lines.pop();
+  }
+  for (const line of lines) {
+    const row = document.createElement('div');
+    row.className = 'logline';
+    // 空行用空格占位，保证高度不被折叠
+    row.textContent = line === '' ? ' ' : line;
+    logBoxEl.appendChild(row);
+  }
+  const isEmpty = lines.length === 0;
+  logBoxEl.style.display = isEmpty ? 'none' : 'block';
+  logEmptyEl.style.display = isEmpty ? 'block' : 'none';
+}
+
+/**
+ * 展示日志区的提示文案（无日志/读取失败/非 KernelSU 环境）
+ * @param message 提示内容
+ */
+function showLogMessage(message: string): void {
+  logBoxEl.textContent = '';
+  logBoxEl.style.display = 'none';
+  logEmptyEl.textContent = message;
+  logEmptyEl.style.display = 'block';
+}
+
+/** 从设备读取注入日志并渲染；任何失败都以提示收尾，不抛异常 */
+async function loadLog(): Promise<void> {
+  if (!hasKsuBridge()) {
+    showLogMessage('需在 KernelSU WebUI 中打开');
+    return;
+  }
+  // 用 base64 传输，规避日志中的特殊字符被 shell 解析
+  const result = await runShell(`cat ${INJECT_LOG_FILE} 2>/dev/null | base64`);
+  if (result.errno !== 0) {
+    showLogMessage(`读取注入日志失败：${result.stderr || `错误码 ${result.errno}`}`);
+    return;
+  }
+  const text = fromBase64(result.stdout);
+  if (text.trim() === '') {
+    // 文件不存在或内容为空
+    showLogMessage('暂无注入日志');
+    return;
+  }
+  renderLog(text);
+}
+
 /** 将当前列表写回设备 */
 async function save(): Promise<void> {
   busy = true;
@@ -229,11 +311,17 @@ inputEl.addEventListener('keydown', (event) => {
 refreshEl.addEventListener('click', () => {
   void load().then(() => toast('已刷新'));
 });
+logRefreshEl.addEventListener('click', () => {
+  void loadLog().then(() => toast('已刷新'));
+});
 
 if (hasKsuBridge()) {
   void load();
+  void loadLog();
 } else {
   // 在普通浏览器中打开时给出提示，便于本地调试页面本身
   toast('请在 KernelSU 管理器内打开本页面');
   render();
+  // 日志区同样提示需要 KernelSU 环境
+  void loadLog();
 }

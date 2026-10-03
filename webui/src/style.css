@@ -158,6 +158,26 @@ li .pkg {
   padding: 10px 0;
 }
 
+/* 注入诊断日志容器：固定最大高度并滚动，逐行展示 */
+.logbox {
+  margin-top: 10px;
+  max-height: 260px;
+  overflow: auto;
+  background: #14171a;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* 单行日志：保留原始空白并允许长行换行显示 */
+.logline {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 #toast {
   position: fixed;
   left: 50%;
