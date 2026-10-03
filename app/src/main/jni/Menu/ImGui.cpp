@@ -12,6 +12,8 @@
 #include "imgui/backends/imgui_impl_android.h"
 #include <GLES3/gl3.h>
 #include <unistd.h>
+#include <chrono>
+#include <thread>
 #include "EGL/egl.h"
 
 #ifndef GL_FRAMEBUFFER_SRGB
@@ -55,6 +57,25 @@ HOOKINPUT(void, Input, void *thiz, void *ex_ab, void *ex_ac)
 
 ImVec2 initialScreenSize;
 bool needClear = true;
+
+// 0 = 不限制帧率；>0 时限制每秒最大绘制帧数
+int g_fpsLimit = 0;
+
+static void applyFpsLimit()
+{
+    if (g_fpsLimit <= 0)
+        return;
+    static auto lastTime = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    auto frameTime = now - lastTime;
+    lastTime = now;
+
+    auto targetFrameTime = std::chrono::microseconds(1000000 / g_fpsLimit);
+    if (frameTime < targetFrameTime)
+    {
+        std::this_thread::sleep_for(targetFrameTime - frameTime);
+    }
+}
 
 void *initModMenu(void *menu_addr, void *on_init_addr, bool isJni)
 {
@@ -263,6 +284,8 @@ void internalDrawMenu(int width, int height)
         glEnable(GL_FRAMEBUFFER_SRGB);
         glEnable(GL_FRAMEBUFFER_SRGB_EXT);
     }
+
+    applyFpsLimit();
 }
 
 EGLBoolean swapbuffers_hook(EGLDisplay dpy, EGLSurface surf)

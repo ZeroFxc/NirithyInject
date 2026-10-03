@@ -51,6 +51,9 @@ bool fullScreen = false;
 bool resetWindow = false;
 int selectedScale = 3;
 int selectedTheme = 0;
+int fpsLimit = 0;
+
+extern int g_fpsLimit;
 
 bool doChangeScale = false;
 
@@ -315,6 +318,37 @@ void draw_thread()
                 }
                 ImGui::EndCombo();
             }
+            ImGui::Text("%s", Lang::T("最大帧率", "Max FPS"));
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(120);
+            static const std::array<const char *, 7> possibleFps = {
+                "0 (Unlimited)", "30", "45", "60", "90", "120", "144",
+            };
+            int fpsIndex = 0;
+            for (int i = 0; i < possibleFps.size(); i++)
+            {
+                if (atoi(possibleFps[i]) == fpsLimit)
+                    fpsIndex = i;
+            }
+            if (ImGui::BeginCombo("##FpsLimit", possibleFps[fpsIndex]))
+            {
+                for (int i = 0; i < possibleFps.size(); i++)
+                {
+                    bool selected = i == fpsIndex;
+                    if (ImGui::Selectable(possibleFps[i], selected))
+                    {
+                        fpsLimit = atoi(possibleFps[i]);
+                        g_fpsLimit = fpsLimit;
+                        ConfigSet("fpsLimit", fpsLimit);
+                    }
+                    if (selected)
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::TextDisabled("%s", Lang::T("限制菜单帧率会同时限制游戏帧率", "Limiting menu FPS also limits game FPS"));
             ImGui::Checkbox(Lang::T("键盘收不到输入时启用备用方案", "Enable if keyboard input is not being received"),
                             &Keyboard::check);
             if (ImGui::Button(Lang::T("重置图片缓存", "Reset image cache")))
@@ -501,6 +535,8 @@ void on_init()
     selectedScale = ConfigGet<int>("selectedScale", selectedScale);
     selectedTheme = ConfigGet<int>("theme", 0);
     Lang::current = ConfigGet<int>("lang", 0);
+    fpsLimit = ConfigGet<int>("fpsLimit", 0);
+    g_fpsLimit = fpsLimit;
     if (selectedScale < 0 || selectedScale >= scaleFactors.size())
     {
         selectedScale = 3;
