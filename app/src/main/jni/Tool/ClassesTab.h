@@ -105,6 +105,9 @@ struct ClassesTab
     int selectedImageIndex = -1;
     bool traceState = false;
 
+    // Side Split 分栏：当前选中查看的类
+    Il2CppClass *selectedClass = nullptr;
+
     int maxProgress = 0;
     int progress = 0;
     void Draw(int index = -1, bool closeable = false);

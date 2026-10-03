@@ -18,6 +18,7 @@
 extern std::vector<Il2CppImage *> g_Images;
 extern Il2CppImage *g_Image;
 extern bool saferInspector;
+extern bool sideSplit;
 
 constexpr int MAX_CLASSES = 500;
 
@@ -1734,7 +1735,10 @@ void ClassesTab::Draw(int index, bool closeable)
         ImGui::Separator();
         if (!filteredClasses.empty())
         {
-            ImGui::BeginChild("Child", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+            auto avail = ImGui::GetContentRegionAvail();
+            float leftWidth = sideSplit ? avail.x * 0.35f : 0.f;
+            ImGui::BeginChild("Child", sideSplit ? ImVec2(leftWidth, 0) : ImVec2(0, 0), false,
+                              ImGuiWindowFlags_HorizontalScrollbar);
             for (int i = 0; i < filteredClasses.size(); i++)
             {
                 auto klass = filteredClasses[i];
@@ -1747,6 +1751,8 @@ void ClassesTab::Draw(int index, bool closeable)
                     pushedColor++;
                 }
                 bool collapsingHeader = ImGui::CollapsingHeader(klass->getFullName().c_str());
+                if (ImGui::IsItemClicked())
+                    selectedClass = klass;
                 if (filterByMethod && ImGui::IsItemHeld(0.7f))
                 {
                     auto name = Util::extractClassNameFromTypename(klass->getFullName().c_str());
@@ -1755,7 +1761,7 @@ void ClassesTab::Draw(int index, bool closeable)
                     tab.selectedImage = klass->getImage();
                     tab.FilterClasses(tab.filter);
                 }
-                if (collapsingHeader)
+                if (collapsingHeader && !sideSplit)
                 {
                     if (pushedColor)
                     {
@@ -1774,6 +1780,20 @@ void ClassesTab::Draw(int index, bool closeable)
             }
             ImGui::ScrollWhenDraggingOnVoid();
             ImGui::EndChild();
+            if (sideSplit)
+            {
+                ImGui::SameLine();
+                ImGui::BeginChild("##SideRight", ImVec2(0, 0));
+                if (selectedClass)
+                {
+                    ClassViewer(selectedClass);
+                }
+                else
+                {
+                    ImGui::TextDisabled("%s", Lang::T("从左侧选择一个类", "Select a class on the left"));
+                }
+                ImGui::EndChild();
+            }
         }
         ImGui::EndTabItem();
     }

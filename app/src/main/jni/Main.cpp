@@ -74,6 +74,9 @@ bool touchPassthrough = false;
 // Safer Inspector：更安全的检查模式（较慢）
 bool saferInspector = false;
 
+// Side Split：类窗口左右分栏布局
+bool sideSplit = false;
+
 constexpr std::array<const char *, 7> possibleScale = {
     "Smallest", "Smaller", "Small", "Default", "Large", "Larger", "Largest",
 };
@@ -348,6 +351,8 @@ void draw_thread()
             }
             if (ImGui::Checkbox(Lang::T("更安全的检查器（较慢）", "Safer Inspector (slower)"), &saferInspector))
                 ConfigSet("saferInspector", saferInspector);
+            if (ImGui::Checkbox(Lang::T("分栏布局", "Side Split"), &sideSplit))
+                ConfigSet("sideSplit", sideSplit);
             ImGui::Separator();
             auto preview = possibleScale[selectedScale];
             if (ImGui::BeginCombo(Lang::T("缩放##Global", "Scale##Global"), preview))
@@ -657,6 +662,7 @@ void on_init()
     twoFingerScroll = ConfigGet<bool>("twoFingerScroll", true);
     touchPassthrough = ConfigGet<bool>("touchPassthrough", false);
     saferInspector = ConfigGet<bool>("saferInspector", false);
+    sideSplit = ConfigGet<bool>("sideSplit", false);
     if (selectedScale < 0 || selectedScale >= scaleFactors.size())
     {
         selectedScale = 3;
