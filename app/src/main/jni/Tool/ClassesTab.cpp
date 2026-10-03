@@ -373,11 +373,11 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                 }
                 if (scanning)
                 {
-                    ImGui::Text("Scanning...");
+                    ImGui::Text("%s", Lang::tr("obj.scanning"));
                 }
                 else
                 {
-                    ImGui::Text("Nothing...");
+                    ImGui::Text("%s", Lang::tr("obj.nothing"));
                 }
                 ImGui::PopStyleColor();
             }
@@ -385,7 +385,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
             {
                 if (objects.size() > 100)
                 {
-                    ImGui::Text("Showing 100 of %zu objects", objects.size());
+                    ImGui::Text(Lang::tr("obj.showing100"), objects.size());
                 }
                 for (auto it = objects.begin(); it != (objects.size() > 100 ? objects.begin() + 100 : objects.end());)
                 {
@@ -405,7 +405,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                     ImGui::SetItemTooltip("%s", object->klass->getName());
                     ImGui::SameLine();
                     ImGui::PushID(buff);
-                    if (ImGui::Button("Remove"))
+                    if (ImGui::Button(Lang::tr("obj.remove")))
                     {
                         it = objects.erase(it);
                     }
@@ -477,7 +477,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                             ImGui::SetItemTooltip("%s", object->klass->getName());
                             ImGui::SameLine();
                             ImGui::PushID(buff);
-                            if (ImGui::Button("Remove"))
+                            if (ImGui::Button(Lang::tr("obj.remove")))
                             {
                                 it = objects.erase(it);
                             }
@@ -493,7 +493,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                 if (empty)
                 {
                     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 50, 50, 255));
-                    ImGui::Text("Nothing...");
+                    ImGui::Text("%s", Lang::tr("obj.nothing"));
                     ImGui::PopStyleColor();
                 }
             }
@@ -535,7 +535,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                 if (objects.empty())
                 {
                     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 50, 50, 255));
-                    ImGui::Text("Nothing...");
+                    ImGui::Text("%s", Lang::tr("obj.nothing"));
                     ImGui::PopStyleColor();
                 }
                 else
@@ -553,7 +553,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                         ImGui::SetItemTooltip("%s", object->klass->getName());
                         ImGui::SameLine();
                         ImGui::PushID(buff);
-                        if (ImGui::Button("Remove"))
+                        if (ImGui::Button(Lang::tr("obj.remove")))
                         {
                             it = objects.erase(it);
                         }
@@ -603,7 +603,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                 if (objects.empty())
                 {
                     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 50, 50, 255));
-                    ImGui::Text("Nothing...");
+                    ImGui::Text("%s", Lang::tr("obj.nothing"));
                     ImGui::PopStyleColor();
                 }
                 else
@@ -621,7 +621,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                         ImGui::SetItemTooltip("%s", object->klass->getName());
                         ImGui::SameLine();
                         ImGui::PushID(buff);
-                        if (ImGui::Button("Remove"))
+                        if (ImGui::Button(Lang::tr("obj.remove")))
                         {
                             it = objects.erase(it);
                         }
@@ -638,7 +638,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
     }
     // if (canNew)
     // {
-    //     if (ImGui::Button("New"))
+    //     if (ImGui::Button(Lang::tr("obj.new")))
     //     {
     //         auto newObject = klass->New();
     //         newObjectMap[klass].push_back(newObject);
@@ -678,7 +678,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                 if (objects.empty())
                 {
                     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 50, 50, 255));
-                    ImGui::Text("Nothing...");
+                    ImGui::Text("%s", Lang::tr("obj.nothing"));
                     ImGui::PopStyleColor();
                 }
                 else
@@ -696,7 +696,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                         ImGui::SetItemTooltip("%s", object->klass->getName());
                         ImGui::SameLine();
                         ImGui::PushID(buff);
-                        if (ImGui::Button("Remove"))
+                        if (ImGui::Button(Lang::tr("obj.remove")))
                         {
                             it = objects.erase(it);
                         }
@@ -709,7 +709,7 @@ void ClassesTab::ImGuiObjectSelector(int id, Il2CppClass *klass, const char *pre
                 }
                 if (canNew)
                 {
-                    if (ImGui::Button("New"))
+                    if (ImGui::Button(Lang::tr("obj.new")))
                     {
                         auto newObject = klass->New();
                         newObjectMap[klass].push_back(newObject);
@@ -1189,7 +1189,7 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
             delete[] arrayParams;
     };
     float callBtnWidth = io.DisplaySize.x / 3;
-    if (ImGui::Button("Call", ImVec2(callBtnWidth, 0)))
+    if (ImGui::Button(Lang::tr("cls.call"), ImVec2(callBtnWidth, 0)))
     {
         doCall();
     }
@@ -1294,7 +1294,7 @@ void ClassesTab::PatcherView(Il2CppClass *klass, MethodInfo *method, const Metho
         strcmp(type->getName(), "System.Single") == 0 || strcmp(type->getName(), "System.Boolean") == 0 ||
         strcmp(type->getName(), "System.String") == 0 || type->isEnum())
     {
-        if (ImGui::Button("Patch return value"))
+        if (ImGui::Button(Lang::tr("cls.patchReturnValue")))
         {
             ImGui::OpenPopup("HookReturnValuePopup");
         }
@@ -1311,7 +1311,7 @@ void ClassesTab::PatcherView(Il2CppClass *klass, MethodInfo *method, const Metho
     {
         if (o.bytes.empty())
         {
-            if (ImGui::Button("NOP"))
+            if (ImGui::Button(Lang::tr("cls.nop")))
             {
                 Patcher p{method};
                 p.ret();
@@ -1320,7 +1320,7 @@ void ClassesTab::PatcherView(Il2CppClass *klass, MethodInfo *method, const Metho
         }
         else
         {
-            if (ImGui::Button("Restore"))
+            if (ImGui::Button(Lang::tr("cls.restore")))
             {
                 memcpy(method->methodPointer, o.bytes.data(), o.bytes.size());
                 o.bytes.clear();
@@ -1334,17 +1334,17 @@ void ClassesTab::PatcherView(Il2CppClass *klass, MethodInfo *method, const Metho
     else
     {
         ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 50, 50, 255));
-        ImGui::Text("Not supported!");
+        ImGui::Text("%s", Lang::tr("cls.notSupported"));
         ImGui::PopStyleColor();
     }
     if (ImGui::BeginPopup("HookReturnValuePopup"))
     {
-        ImGui::Text("Change return value");
+        ImGui::Text("%s", Lang::tr("cls.changeReturnValue"));
         ImGui::PushID(type);
         char label[64]{0};
         if (!o.bytes.empty())
         {
-            sprintf(label, "%s", "Restore");
+            snprintf(label, sizeof(label), "%s", Lang::tr("cls.restore"));
         }
         else
         {
