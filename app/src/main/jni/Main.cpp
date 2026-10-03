@@ -381,30 +381,33 @@ void draw_thread()
             ImGui::Separator();
             ImGui::Text("%s", Lang::T("显示", "Display"));
             ImGui::TextDisabled("%s", Lang::T("选项卡:", "Tabs:"));
-            if (ImGui::Checkbox(Lang::T("工具", "Tools"), &tabShowTools))
-                ConfigSet("tabShowTools", tabShowTools);
-            if (ImGui::Checkbox(Lang::T("跟踪器", "Tracer"), &tabShowTracer))
-                ConfigSet("tabShowTracer", tabShowTracer);
-            if (ImGui::Checkbox(Lang::T("转储", "Dumper"), &tabShowDumper))
-                ConfigSet("tabShowDumper", tabShowDumper);
-            if (ImGui::Checkbox(Lang::T("内存", "Memory"), &tabShowMemory))
-                ConfigSet("tabShowMemory", tabShowMemory);
-            if (ImGui::Checkbox(Lang::T("脚本", "Script"), &tabShowScript))
-                ConfigSet("tabShowScript", tabShowScript);
-            if (ImGui::Checkbox(Lang::T("设置", "Settings"), &tabShowSettings))
-                ConfigSet("tabShowSettings", tabShowSettings);
-            if (ImGui::Checkbox(Lang::T("双指滚动", "Two-finger scroll"), &twoFingerScroll))
-                ConfigSet("twoFingerScroll", twoFingerScroll);
-            if (ImGui::Checkbox(Lang::T("触摸穿透", "Touch Passthrough"), &touchPassthrough))
-                ConfigSet("touchPassthrough", touchPassthrough);
+            // 自适应网格：根据可用宽度自动计算每行列数
+            {
+                float avail = ImGui::GetContentRegionAvail().x;
+                int perRow = avail > 180.0f ? (int)(avail / 180.0f) : 1;
+                int col = 0;
+                auto check = [&](const char *label, bool *var, const char *key)
+                {
+                    if (ImGui::Checkbox(label, var))
+                        ConfigSet(key, *var);
+                    col++;
+                    if (col % perRow != 0)
+                        ImGui::SameLine();
+                };
+                check(Lang::T("工具", "Tools"), &tabShowTools, "tabShowTools");
+                check(Lang::T("跟踪器", "Tracer"), &tabShowTracer, "tabShowTracer");
+                check(Lang::T("转储", "Dumper"), &tabShowDumper, "tabShowDumper");
+                check(Lang::T("内存", "Memory"), &tabShowMemory, "tabShowMemory");
+                check(Lang::T("脚本", "Script"), &tabShowScript, "tabShowScript");
+                check(Lang::T("设置", "Settings"), &tabShowSettings, "tabShowSettings");
+                check(Lang::T("双指滚动", "Two-finger scroll"), &twoFingerScroll, "twoFingerScroll");
+                check(Lang::T("触摸穿透", "Touch Passthrough"), &touchPassthrough, "touchPassthrough");
+                check(Lang::T("更安全的检查器", "Safer Inspector"), &saferInspector, "saferInspector");
+            }
             if (touchPassthrough)
             {
                 ImGui::TextDisabled("%s", Lang::T("临时方案：触摸事件未传递到游戏时启用", "Temporary fix if touches are not reaching the game"));
             }
-            if (ImGui::Checkbox(Lang::T("更安全的检查器（较慢）", "Safer Inspector (slower)"), &saferInspector))
-                ConfigSet("saferInspector", saferInspector);
-            if (ImGui::Checkbox(Lang::T("分栏布局", "Side Split"), &sideSplit))
-                ConfigSet("sideSplit", sideSplit);
             ImGui::Separator();
             auto preview = possibleScale[selectedScale];
             if (ImGui::BeginCombo(Lang::T("缩放##Global", "Scale##Global"), preview))
