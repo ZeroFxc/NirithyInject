@@ -1177,22 +1177,31 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
         doCall();
     }
     ImGui::PopStyleColor(3);
-    if (!callResults.at(method).empty())
+    auto &results = callResults.at(method);
+    if (!results.empty())
     {
         ImGui::Separator();
-        ImGui::Text("%s", Lang::T("调用结果:", "Call Results:"));
+        ImGui::Text("%s (%zu)", Lang::T("调用结果:", "Call Results:"), results.size());
+        ImGui::SameLine();
+        if (ImGui::SmallButton(Lang::T("清除", "Clear")))
+            results.clear();
         int ri = 0;
-        for (auto &callResult : callResults.at(method))
+        // 反向迭代：最新的调用结果显示在最上面
+        for (auto it = results.rbegin(); it != results.rend(); ++it)
         {
+            auto &callResult = *it;
             ImGui::PushID(ri++);
-            // 结构化面板：第一行显示返回类型名
+            // 序号 + 返回类型名在同一行
+            char idxLabel[16];
+            snprintf(idxLabel, sizeof(idxLabel), "#%d", ri);
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s", idxLabel);
+            ImGui::SameLine();
             if (!callResult.typeName.empty())
             {
                 ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1.0f), "%s", callResult.typeName.c_str());
             }
             if (callResult.object && callResult.fieldCount > 0)
             {
-                // 引用类型：点击展开内联 ImGuiJson 树
                 char label[512];
                 snprintf(label, sizeof(label), "%s  (%zu fields)###cr%p%d", callResult.value.c_str(),
                          callResult.fieldCount, callResult.object, ri);
@@ -1223,15 +1232,6 @@ void ClassesTab::CallerView(Il2CppClass *klass, MethodInfo *method, const Method
             ImGui::PopID();
             ImGui::Separator();
         }
-        // ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(200, 30, 25, 128));
-        // ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(200, 30, 25,
-        // 255)); ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(200, 30, 25,
-        // 255)); if (ImGui::Button("Clear##CallResults",
-        //                   ImVec2(ImGui::GetIO().DisplaySize.x / 3.f, 0)))
-        // {
-        //     callResults.at(method).clear();
-        // }
-        // ImGui::PopStyleColor(3);
     }
 }
 
@@ -1789,7 +1789,7 @@ bool ClassesTab::MethodViewer(Il2CppClass *klass, MethodInfo *method, const Meth
 
     if (callResults.find(method) == callResults.end())
     {
-        callResults.emplace(method, (size_t)5);
+        callResults.emplace(method, (size_t)50);
     }
 
     bool methodIsStatic = Il2cpp::GetIsMethodStatic(method);
