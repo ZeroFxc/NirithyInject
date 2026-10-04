@@ -1422,23 +1422,17 @@ namespace Il2cpp
 
     std::string getUnityVersion()
     {
-        static auto Application = FindClass("UnityEngine.Application");
-        static auto get_unityVersion = Application->getMethod("get_unityVersion");
+        auto *Application = FindClass("UnityEngine.Application");
+        if (!Application)
+            return "unknown_unity_version";
+        auto *get_unityVersion = Application->getMethod("get_unityVersion");
         if (!get_unityVersion)
-        {
             return "unknown_unity_version";
-        }
-        static auto unityVersion = Application->invoke_static_method<Il2CppString *>("get_unityVersion");
+        auto *unityVersion = Application->invoke_static_method<Il2CppString *>("get_unityVersion");
         if (unityVersion)
-        {
-            static auto str = unityVersion->to_string();
-            return str;
-        }
-        else
-        {
-            LOGE("Failed to get unityVersion");
-            return "unknown_unity_version";
-        }
+            return unityVersion->to_string();
+        LOGE("Failed to get unityVersion");
+        return "unknown_unity_version";
     }
 
     // dataPath => /storage/emulated/0/Android/data/com.dxx.firenow/files
@@ -1446,65 +1440,48 @@ namespace Il2cpp
     // version => 2.4.2
     std::string getDataPath()
     {
-        static auto Application = Il2cpp::FindClass("UnityEngine.Application");
-        static auto get_persistentDataPath = Application->getMethod("get_persistentDataPath");
+        // 不使用 static 缓存：IL2CPP 未就绪时 FindClass 返回空，
+        // static 会永久缓存空指针导致后续永远崩溃
+        auto *Application = Il2cpp::FindClass("UnityEngine.Application");
+        if (!Application)
+            return "unknown_data_path";
+        auto *get_persistentDataPath = Application->getMethod("get_persistentDataPath");
         if (!get_persistentDataPath)
-        {
             return "unknown_data_path";
-        }
-        static auto dataPath = get_persistentDataPath->invoke_static<Il2CppString *>("get_persistentDataPath");
+        auto *dataPath = get_persistentDataPath->invoke_static<Il2CppString *>("get_persistentDataPath");
         if (dataPath)
-        {
-            static auto str = dataPath->to_string();
-            return str;
-        }
-        else
-        {
-            LOGE("Failed to get dataPath");
-            return "unknown_data_path";
-        }
+            return dataPath->to_string();
+        LOGE("Failed to get dataPath");
+        return "unknown_data_path";
     }
     std::string getPackageName()
     {
-        static auto Application = Il2cpp::FindClass("UnityEngine.Application");
-        static auto get_identifier = Application->getMethod("get_identifier");
+        auto *Application = Il2cpp::FindClass("UnityEngine.Application");
+        if (!Application)
+            return "unknown_package_name";
+        auto *get_identifier = Application->getMethod("get_identifier");
         if (!get_identifier)
-        {
             return "unknown_package_name";
-        }
-        static auto identifier = get_identifier->invoke_static<Il2CppString *>("get_identifier");
+        auto *identifier = get_identifier->invoke_static<Il2CppString *>("get_identifier");
         if (identifier)
-        {
-            static auto str = identifier->to_string();
-            return str;
-        }
-
-        else
-        {
-            LOGE("Failed to get packageName");
-            return "unknown_package_name";
-        }
+            return identifier->to_string();
+        LOGE("Failed to get packageName");
+        return "unknown_package_name";
     }
 
     std::string getGameVersion()
     {
-        static auto Application = Il2cpp::FindClass("UnityEngine.Application");
-        static auto get_version = Application->getMethod("get_version");
+        auto *Application = Il2cpp::FindClass("UnityEngine.Application");
+        if (!Application)
+            return "unknown_game_version";
+        auto *get_version = Application->getMethod("get_version");
         if (!get_version)
-        {
             return "unknown_game_version";
-        }
-        static auto version = get_version->invoke_static<Il2CppString *>("get_version");
+        auto *version = get_version->invoke_static<Il2CppString *>("get_version");
         if (version)
-        {
-            static auto str = version->to_string();
-            return str;
-        }
-        else
-        {
-            LOGE("Failed to get game version");
-            return "unknown_game_version";
-        }
+            return version->to_string();
+        LOGE("Failed to get game version");
+        return "unknown_game_version";
     }
     namespace GC
     {
