@@ -2036,12 +2036,10 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
     }
     {
         ImGui::SameLine();
-        bool &state = states[klass];
-        char label[12]{0};
-        if (!state)
-            sprintf(label, "Trace all");
-        else
-            sprintf(label, "Restore");
+        // Trace all状态独立存储，不能复用states（states同时用于类展开状态）
+        static std::unordered_map<Il2CppClass *, bool> traceStates;
+        bool &state = traceStates[klass];
+        const char *label = state ? Lang::T("恢复", "Restore") : Lang::T("追踪全部", "Trace all");
         if (ImGui::Button(label))
         {
             if (!state)
@@ -2067,7 +2065,7 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
         }
         if (ImGui::BeginPopup("ConfirmPopup"))
         {
-            ImGui::TextColored(ImVec4(0.8, 0.8, 0, 1), "WARNING: There's a high-risk of crash");
+            ImGui::TextColored(ImVec4(0.8, 0.8, 0, 1), "%s", Lang::T("警告：有较高崩溃风险", "WARNING: high risk of crash"));
             if (ImGui::Button(Lang::tr("cls.continueQ")))
             {
                 state = true;
@@ -2116,14 +2114,24 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
             for (auto m : klass->getMethods())
                 methods.push_back({m, m->getParamsInfo()});
         }
-        // 方法节点可展开导致行高不固定，不传ItemsHeight让clipper自动测量，
-        // 只渲染可见部分避免大方法数类卡顿，同时避免固定估算行高导致滚动跳动。
+        // 树状层级：缩进 + 左侧竖线 + 每个方法前横线，明确父子级关系
+        ImGui::Indent(20);
+        ImVec2 listStart = ImGui::GetCursorScreenPos();
+        float treeLineX = listStart.x - 12;
+        ImU32 treeColor = ImGui::GetColorU32(ImGuiCol_Border);
+
         ImGuiListClipper clipper;
         clipper.Begin((int)methods.size());
         while (clipper.Step())
         {
             for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
             {
+                // 每个方法节点前画横线连接到竖线
+                ImVec2 itemStart = ImGui::GetCursorScreenPos();
+                float lineY = itemStart.y + ImGui::GetFrameHeight() * 0.5f;
+                ImGui::GetWindowDrawList()->AddLine(
+                    ImVec2(treeLineX, lineY), ImVec2(itemStart.x, lineY), treeColor, 1.0f);
+
                 auto &[method, paramsInfo] = methods[i];
                 ImGui::PushID(method + i);
                 MethodViewer(klass, method, paramsInfo);
@@ -2131,6 +2139,11 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
                 ImGui::PopID();
             }
         }
+        // 左侧竖线贯穿方法列表可见区域
+        ImVec2 listEnd = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddLine(
+            ImVec2(treeLineX, listStart.y), ImVec2(treeLineX, listEnd.y), treeColor, 1.0f);
+        ImGui::Unindent(20);
     }
     ImGui::PopID();
 }
@@ -2278,7 +2291,7 @@ void ClassesTab::Draw(int index, bool closeable)
 
             if (ImGui::BeginPopup("ConfirmPopup"))
             {
-                ImGui::TextColored(ImVec4(0.8, 0.8, 0, 1), "WARNING: There's a high-risk of crash");
+                ImGui::TextColored(ImVec4(0.8, 0.8, 0, 1), "%s", Lang::T("警告：有较高崩溃风险", "WARNING: high risk of crash"));
                 if (ImGui::Button(Lang::tr("cls.continueQ")))
                 {
                     traceState = true;
