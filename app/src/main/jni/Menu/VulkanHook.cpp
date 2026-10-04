@@ -162,7 +162,11 @@ static int gotHookPhdrCallback(struct dl_phdr_info *info, size_t size, void *dat
     auto *entries = (std::vector<GotHookEntry> *)data;
     if (!info->dlpi_name || info->dlpi_name[0] == '\0')
         return 0;
-    // 只 hook 调用方，不碰 libvulkan.so 自身和我们自己的库
+    // 只 hook 应用自己的库（/data/ 路径），跳过系统库（/system、/apex、/vendor 等）。
+    // 系统库的 dlsym/GIPA 被替换后可能在 dl_iterate_phdr 执行期间被调用，导致死锁/递归。
+    if (!strstr(info->dlpi_name, "/data/"))
+        return 0;
+    // 不碰 libvulkan.so 自身和我们自己的库
     if (strstr(info->dlpi_name, "libvulkan.so"))
         return 0;
     if (strstr(info->dlpi_name, "libTool.so"))
