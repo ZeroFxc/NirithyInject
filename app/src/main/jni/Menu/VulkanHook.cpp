@@ -19,12 +19,14 @@
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unistd.h>
 #include <dlfcn.h>
 #include <link.h>
 #include <elf.h>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 
 extern void (*menuAddress)();
 extern void (*onInitAddr)();
@@ -136,6 +138,10 @@ struct GotHookEntry
     bool found;
 };
 
+static std::unordered_set<std::string> g_gotHookedModules;
+static std::mutex g_gotMutex;
+static std::atomic<bool> g_gotHookDone{false};
+
 static int gotHookPhdrCallback(struct dl_phdr_info *info, size_t size, void *data)
 {
     auto *entries = (std::vector<GotHookEntry> *)data;
@@ -146,6 +152,13 @@ static int gotHookPhdrCallback(struct dl_phdr_info *info, size_t size, void *dat
         return 0;
     if (strstr(info->dlpi_name, "libTool.so"))
         return 0;
+    // 跳过已处理的库（轮询时避免重复）
+    {
+        std::lock_guard<std::mutex> lock(g_gotMutex);
+        if (g_gotHookedModules.count(info->dlpi_name))
+            return 0;
+        g_gotHookedModules.insert(info->dlpi_name);
+    }
 
     uintptr_t base = info->dlpi_addr;
     const ElfW(Ehdr) *ehdr = (const ElfW(Ehdr) *)base;
@@ -225,6 +238,27 @@ static int gotHookPhdrCallback(struct dl_phdr_info *info, size_t size, void *dat
 static void installGotHooks(std::vector<GotHookEntry> &entries)
 {
     dl_iterate_phdr(gotHookPhdrCallback, &entries);
+}
+
+// 轮询线程：游戏库（libunity.so/libil2cpp.so等）可能在 initVulkanHooks 之后才加载，
+// 因此定期重新枚举已加载库，对新出现的库补做 GOT hook。
+static void gotHookPollThread(std::vector<GotHookEntry> entries)
+{
+    for (int i = 0; i < 30; i++)
+    {
+        sleep(1);
+        if (g_gotHookDone.load())
+            break;
+        bool anyFound = false;
+        for (auto &e : entries)
+            e.found = false;
+        installGotHooks(entries);
+        for (auto &e : entries)
+            if (e.found)
+                anyFound = true;
+        if (anyFound)
+            LOGI("GOT hook poll #%d matched new modules", i);
+    }
 }
 
 static PFN_vkVoidFunction loader(const char *name, void *ud)
@@ -695,7 +729,11 @@ void initVulkanHooks()
     };
     installGotHooks(gotEntries);
     if (!gotEntries[0].found)
-        LOGI("GOT hook vkGetInstanceProcAddr: no module matched (may use direct symbols)");
+        LOGI("GOT hook: no module matched at init, starting poll thread for late-loaded libs");
+    // 游戏主库（libunity.so/libil2cpp.so）通常在 initVulkanHooks 之后才加载，
+    // 启动轮询线程持续补 hook 新出现的库。
+    std::thread pollThread(gotHookPollThread, gotEntries);
+    pollThread.detach();
 
     LOGI("Vulkan overlay hooks installed");
 }
