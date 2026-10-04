@@ -19,6 +19,7 @@ extern "C" {
     JNIEXPORT void JNICALL Java_imgui_il2cpp_tool_NativeMethods_onSurfaceChanged(JNIEnv *, jclass, jint, jint);
     JNIEXPORT void JNICALL Java_imgui_il2cpp_tool_NativeMethods_onSurfaceCreate(JNIEnv *, jclass);
     JNIEXPORT void JNICALL Java_imgui_il2cpp_tool_OverlayHelper_nativeOnTouch(JNIEnv *, jclass, jint, jfloat, jfloat, jint, jlong);
+    JNIEXPORT void JNICALL Java_imgui_il2cpp_tool_OverlayHelper_nativeOnSurfaceDestroyed(JNIEnv *, jclass);
 }
 
 static JavaVM *g_jvm = nullptr;
@@ -217,15 +218,16 @@ bool OverlayLoader_start()
         checkException(env, "loadClass NativeMethods");
     }
 
-    // 注册 OverlayHelper.nativeOnTouch
+    // 注册 OverlayHelper.nativeOnTouch + nativeOnSurfaceDestroyed
     JNINativeMethod ohMethods[] = {
         {(char *)"nativeOnTouch", (char *)"(IFFIJ)V", (void *)Java_imgui_il2cpp_tool_OverlayHelper_nativeOnTouch},
+        {(char *)"nativeOnSurfaceDestroyed", (char *)"()V", (void *)Java_imgui_il2cpp_tool_OverlayHelper_nativeOnSurfaceDestroyed},
     };
-    if (env->RegisterNatives(helperClass, ohMethods, 1) == JNI_OK)
-        LOGI("OverlayLoader: Registered nativeOnTouch");
+    if (env->RegisterNatives(helperClass, ohMethods, 2) == JNI_OK)
+        LOGI("OverlayLoader: Registered nativeOnTouch + nativeOnSurfaceDestroyed");
     else
-        LOGE("OverlayLoader: RegisterNatives nativeOnTouch failed");
-    checkException(env, "RegisterNatives nativeOnTouch");
+        LOGE("OverlayLoader: RegisterNatives OverlayHelper failed");
+    checkException(env, "RegisterNatives OverlayHelper");
 
     // 6. 调用 OverlayHelper.start() 静态方法
     jmethodID startMethod = env->GetStaticMethodID(helperClass, "start", "()V");

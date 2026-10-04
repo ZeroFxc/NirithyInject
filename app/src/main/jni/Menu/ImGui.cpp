@@ -46,6 +46,17 @@ bool isInitialized = false;
 int glWidth = 0;
 int glHeight = 0;
 
+// GL 上下文丢失标志：Activity 切换导致 GLSurfaceView 重建时，旧 EGL 上下文里的
+// shader/texture 在新上下文中无效，需要重新初始化 ImGui_ImplOpenGL3。
+static bool g_glContextLost = false;
+
+// 由 OverlayHelper.nativeOnSurfaceDestroyed 调用（Main.cpp 中转）
+void markGlContextLost()
+{
+    LOGI("markGlContextLost: EGL surface destroyed, OpenGL3 backend will reinit on next surface");
+    g_glContextLost = true;
+}
+
 // 由 Main.cpp 定义的窗口重排标志：置位后菜单会按新的显示尺寸重新计算窗口位置
 extern bool resetWindow;
 
@@ -579,7 +590,18 @@ void menuStyle(int theme)
 void setupMenu()
 {
     if (isInitialized)
+    {
+        // GL 上下文丢失（Activity 切换 / GLSurfaceView 重建）：重新初始化 OpenGL3 backend
+        if (g_glContextLost)
+        {
+            LOGI("setupMenu: GL context lost, reinitializing ImGui_ImplOpenGL3");
+            ImGui_ImplOpenGL3_Shutdown();
+            ImGui_ImplOpenGL3_Init("#version 300 es");
+            g_glContextLost = false;
+            LOGI("setupMenu: ImGui_ImplOpenGL3 reinitialized");
+        }
         return;
+    }
 
     auto ctx = ImGui::CreateContext();
     if (!ctx)

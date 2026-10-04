@@ -939,6 +939,12 @@ extern "C"
             break;
         }
     }
+
+    // GlViewWrapper surface 销毁时调用：标记 GL 上下文丢失，下次 onSurfaceCreate 时重新初始化 OpenGL3 backend
+    JNIEXPORT void JNICALL Java_imgui_il2cpp_tool_OverlayHelper_nativeOnSurfaceDestroyed(JNIEnv *env, jclass clazz)
+    {
+        markGlContextLost();
+    }
 }
 
 // APK / in-process inject path. Zygisk starts hack_thread from postAppSpecialize

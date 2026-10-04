@@ -19,3 +19,7 @@ int getGlWidth();
 int getGlHeight();
 
 void installOverlayHooks();
+
+// GL 上下文丢失标记（Activity 切换导致 GLSurfaceView 重建时调用），
+// 下次 setupMenu 时重新初始化 ImGui_ImplOpenGL3。
+void markGlContextLost();

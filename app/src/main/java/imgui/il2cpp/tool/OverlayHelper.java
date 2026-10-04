@@ -11,17 +11,21 @@ import android.view.Display;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.Window;
 import android.view.WindowManager;
 import android.graphics.Point;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Map;
 
 /**
  * 注入场景下的 overlay 入口。
- * 通过反射获取当前 Activity，在主线程创建全屏透明 GLSurfaceView，
- * 由 GlViewWrapper 的 Renderer 回调驱动 native OpenGL 渲染。
- * 监听 Activity 生命周期，Activity 切换时自动重新绑定 overlay。
+ * 参考 IL2CPP MCP v2.7.9 的 OverlayBridge 实现：
+ * - findResumedActivity 优先用 ActivityThread.mResumedActivity
+ * - Window touch routing 优先 hook Window.dispatchTouchEvent，失败回退 SurfaceView listener
+ * - surfaceDestroyed 通知 native 重置 GL 状态（EGL 上下文丢失）
+ * - ActivityLifecycleCallbacks 监听切换，onResume 时重新绑定
  */
 public class OverlayHelper {
 
@@ -29,12 +33,33 @@ public class OverlayHelper {
     private static Activity sCurrentActivity;
     private static boolean sStarted = false;
     private static Application.ActivityLifecycleCallbacks sLifecycleCallbacks;
+    private static boolean sWindowTouchInstalled = false;
+    private static Window.Callback sOriginalWindowCallback;
 
-    /** 通过反射获取当前栈顶 Activity（未 paused 的） */
-    private static Activity getCurrentActivity() {
+    /** 优先用 ActivityThread.mResumedActivity，失败回退遍历 mActivities */
+    private static Activity findResumedActivity() {
         try {
             Class<?> activityThreadClass = Class.forName("android.app.ActivityThread");
             Object activityThread = activityThreadClass.getMethod("currentActivityThread").invoke(null);
+
+            // 优先：直接读 mResumedActivity 字段（Android 7.0+）
+            try {
+                Field resumedField = activityThreadClass.getDeclaredField("mResumedActivity");
+                resumedField.setAccessible(true);
+                Object activityRecord = resumedField.get(activityThread);
+                if (activityRecord != null) {
+                    Field activityField = activityRecord.getClass().getDeclaredField("activity");
+                    activityField.setAccessible(true);
+                    Activity activity = (Activity) activityField.get(activityRecord);
+                    if (activity != null) {
+                        android.util.Log.i("MXP", "findResumedActivity: mResumedActivity=" + activity.getClass().getSimpleName());
+                        return activity;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+
+            // 回退：遍历 mActivities 找未 paused 的
             Field activitiesField = activityThreadClass.getDeclaredField("mActivities");
             activitiesField.setAccessible(true);
             Map<?, ?> activities = (Map<?, ?>) activitiesField.get(activityThread);
@@ -53,8 +78,10 @@ public class OverlayHelper {
                 try {
                     Field pausedField = recordClass.getDeclaredField("paused");
                     pausedField.setAccessible(true);
-                    if (!pausedField.getBoolean(activityRecord))
+                    if (!pausedField.getBoolean(activityRecord)) {
+                        android.util.Log.i("MXP", "findResumedActivity: mActivities scan=" + activity.getClass().getSimpleName());
                         return activity;
+                    }
                 } catch (Exception ignored) {
                 }
             }
@@ -71,16 +98,14 @@ public class OverlayHelper {
             return;
         sStarted = true;
         new Handler(Looper.getMainLooper()).post(() -> {
-            // 注册 Activity 生命周期回调，在 onResume 时绑定 overlay
             try {
-                Activity activity = getCurrentActivity();
+                Activity activity = findResumedActivity();
                 if (activity != null) {
                     Application app = activity.getApplication();
                     sLifecycleCallbacks = new Application.ActivityLifecycleCallbacks() {
                         @Override public void onActivityCreated(Activity a, Bundle savedInstanceState) {}
                         @Override public void onActivityStarted(Activity a) {}
                         @Override public void onActivityResumed(Activity a) {
-                            // 前台 Activity 变化时重新绑定 overlay
                             if (a != sCurrentActivity || sGlView == null) {
                                 android.util.Log.i("MXP", "onActivityResumed: rebind to " + a.getClass().getSimpleName());
                                 removeOverlay();
@@ -101,7 +126,6 @@ public class OverlayHelper {
                         }
                     };
                     app.registerActivityLifecycleCallbacks(sLifecycleCallbacks);
-                    // 立即在当前 Activity 上创建
                     sCurrentActivity = activity;
                     createOverlay(activity);
                 } else {
@@ -126,9 +150,16 @@ public class OverlayHelper {
 
             Context displayContext = activity.createDisplayContext(display);
             sGlView = new GlViewWrapper(displayContext);
+
+            // 优先安装 Window touch routing（hook dispatchTouchEvent）
+            installWindowTouch(activity);
+
+            // SurfaceView listener 作为回退
             sGlView.setOnTouchListener((v, event) -> {
-                nativeOnTouch(event.getAction(), event.getX(), event.getY(),
-                        event.getPointerId(0), event.getEventTime());
+                if (!sWindowTouchInstalled) {
+                    nativeOnTouch(event.getAction(), event.getX(), event.getY(),
+                            event.getPointerId(0), event.getEventTime());
+                }
                 return true;
             });
 
@@ -144,16 +175,69 @@ public class OverlayHelper {
             lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
 
             wm.addView(sGlView, lp);
-            android.util.Log.i("MXP", "createOverlay: addView done " + size.x + "x" + size.y);
+            android.util.Log.i("MXP", "createOverlay: addView done " + size.x + "x" + size.y
+                    + " windowTouch=" + sWindowTouchInstalled);
         } catch (Exception e) {
             android.util.Log.e("MXP", "createOverlay failed", e);
             sGlView = null;
         }
     }
 
+    /**
+     * Window touch routing：用动态代理替换 Window.Callback，拦截 dispatchTouchEvent。
+     * 这样 overlay 外面的触摸也能被捕获（IL2CPP MCP 的方案）。
+     * 失败时回退到 SurfaceView 的 OnTouchListener。
+     */
+    private static void installWindowTouch(Activity activity) {
+        try {
+            Window window = activity.getWindow();
+            sOriginalWindowCallback = window.getCallback();
+            final Window.Callback original = sOriginalWindowCallback;
+
+            // 动态代理：只拦截 dispatchTouchEvent，其余方法反射调用原始 callback
+            Window.Callback proxy = (Window.Callback) java.lang.reflect.Proxy.newProxyInstance(
+                    Window.Callback.class.getClassLoader(),
+                    new Class<?>[]{Window.Callback.class},
+                    (proxy1, method, args) -> {
+                        if ("dispatchTouchEvent".equals(method.getName()) && args != null && args.length > 0) {
+                            MotionEvent event = (MotionEvent) args[0];
+                            nativeOnTouch(event.getAction(), event.getX(), event.getY(),
+                                    event.getPointerId(0), event.getEventTime());
+                        }
+                        if (original != null) {
+                            try {
+                                return method.invoke(original, args);
+                            } catch (java.lang.reflect.InvocationTargetException e) {
+                                throw e.getTargetException();
+                            }
+                        }
+                        return null;
+                    });
+            window.setCallback(proxy);
+            sWindowTouchInstalled = true;
+            android.util.Log.i("MXP", "Window touch routing installed (dynamic proxy)");
+        } catch (Exception e) {
+            android.util.Log.w("MXP", "Window touch routing unavailable; using SurfaceView listener", e);
+            sWindowTouchInstalled = false;
+        }
+    }
+
+    private static void restoreWindowTouch(Activity activity) {
+        if (sWindowTouchInstalled && sOriginalWindowCallback != null && activity != null) {
+            try {
+                activity.getWindow().setCallback(sOriginalWindowCallback);
+                android.util.Log.i("MXP", "Window touch routing restored");
+            } catch (Exception ignored) {
+            }
+        }
+        sWindowTouchInstalled = false;
+        sOriginalWindowCallback = null;
+    }
+
     private static void removeOverlay() {
         if (sGlView != null && sCurrentActivity != null) {
             try {
+                restoreWindowTouch(sCurrentActivity);
                 WindowManager wm = sCurrentActivity.getWindowManager();
                 wm.removeView(sGlView);
             } catch (Exception ignored) {
@@ -162,6 +246,14 @@ public class OverlayHelper {
         }
     }
 
+    /** GlViewWrapper surface 销毁时调用，通知 native GL 上下文丢失 */
+    public static void onSurfaceDestroyed() {
+        android.util.Log.i("MXP", "OverlayHelper.onSurfaceDestroyed: notify native GL context lost");
+        nativeOnSurfaceDestroyed();
+    }
+
     /** 触摸事件传递给 native（由 ImGui_ImplAndroid 处理） */
     public static native void nativeOnTouch(int action, float x, float y, int pointerId, long eventTime);
+    /** GL 上下文丢失通知（EGL surface destroyed） */
+    public static native void nativeOnSurfaceDestroyed();
 }
