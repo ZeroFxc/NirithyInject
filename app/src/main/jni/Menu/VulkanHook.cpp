@@ -87,6 +87,22 @@ static PFN_vkQueuePresentKHR orig_vkQueuePresentKHR = nullptr;
 static PFN_vkGetInstanceProcAddr orig_vkGetInstanceProcAddr = nullptr;
 static PFN_vkGetDeviceProcAddr orig_vkGetDeviceProcAddr = nullptr;
 
+static PFN_vkVoidFunction hooked_vkGetInstanceProcAddr(VkInstance instance, const char *pName);
+
+// dlsym GOT hook：Unity/UE 等引擎通过 dlsym(libvulkan.so, "vkGetInstanceProcAddr")
+// 获取函数指针再直接调用，GOT hook GIPA 拦不到（其 GOT 表无此符号）。
+// 拦截 dlsym 后对该符号返回我们的包装，进而拦截 GDPA 和 device-level 函数获取。
+typedef void *(*dlsym_fn)(void *, const char *);
+static dlsym_fn orig_dlsym = nullptr;
+
+static void *hooked_dlsym(void *handle, const char *symbol)
+{
+    void *fn = orig_dlsym(handle, symbol);
+    if (symbol && strcmp(symbol, "vkGetInstanceProcAddr") == 0)
+        return (void *)hooked_vkGetInstanceProcAddr;
+    return fn;
+}
+
 struct OverlayFrame
 {
     VkImage image = VK_NULL_HANDLE;
@@ -723,13 +739,19 @@ void initVulkanHooks()
     // 只改调用方 GOT 表（数据段），不碰 libvulkan.so 代码，无 PAC/BTI 问题。
     orig_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(g_vulkanLib, OBFUSCATE("vkGetInstanceProcAddr"));
     orig_vkGetDeviceProcAddr = (PFN_vkGetDeviceProcAddr)dlsym(g_vulkanLib, OBFUSCATE("vkGetDeviceProcAddr"));
+    orig_dlsym = (dlsym_fn)dlsym(RTLD_DEFAULT, OBFUSCATE("dlsym"));
     std::vector<GotHookEntry> gotEntries = {
         {OBFUSCATE("vkGetInstanceProcAddr"), (void *)hooked_vkGetInstanceProcAddr, (void **)&orig_vkGetInstanceProcAddr, false},
+        {OBFUSCATE("dlsym"), (void *)hooked_dlsym, (void **)&orig_dlsym, false},
     };
     installGotHooks(gotEntries);
-    if (!gotEntries[0].found)
+    bool anyFound = false;
+    for (auto &e : gotEntries)
+        if (e.found)
+            anyFound = true;
+    if (!anyFound)
         LOGI("GOT hook: no module matched at init, starting poll thread for late-loaded libs");
-    // 游戏主库（libunity.so/libil2cpp.so）通常在 initVulkanHooks 之后才加载，
+    // 游戏主库（libunity.so/libil2cpp.so等）通常在 initVulkanHooks 之后才加载，
     // 启动轮询线程持续补 hook 新出现的库。
     std::thread pollThread(gotHookPollThread, gotEntries);
     pollThread.detach();
