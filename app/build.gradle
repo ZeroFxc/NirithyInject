@@ -344,4 +344,8 @@ tasks.whenTaskAdded { task ->
     if (task.name.startsWith("externalNativeBuild")) {
         task.dependsOn generateDexHeader
     }
+    // generateDexHeader 必须在 dex 生成之后执行，否则读到旧 dex
+    if (task.name == "generateDexHeader") {
+        task.dependsOn "mergeProjectDexDebug"
+    }
 }
