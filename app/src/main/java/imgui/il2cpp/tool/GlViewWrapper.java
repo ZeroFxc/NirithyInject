@@ -14,9 +14,12 @@ import javax.microedition.khronos.opengles.GL10;
 
 /**
  * GLSurfaceView 包装，负责 EGL/GLES3 上下文创建和 native 渲染回调。
- * 参考 IL2CPP MCP：检查 GLES3 可用性，失败时记录错误并禁用 overlay（不崩溃）。
+ * 注意：GLSurfaceView 自身已实现 SurfaceHolder.Callback2，子类不可重写
+ * surfaceCreated/surfaceChanged/surfaceDestroyed 而不调用 super，
+ * 否则会跳过内部 EGL 初始化，导致 !readyToDraw() 且 Renderer 回调永不触发。
+ * surfaceDestroyed 通知通过额外的 Callback 实现，不覆盖父类方法。
  */
-public class GlViewWrapper extends GLSurfaceView implements GLSurfaceView.Renderer, SurfaceHolder.Callback2 {
+public class GlViewWrapper extends GLSurfaceView implements GLSurfaceView.Renderer {
 
     private static final String TAG = "MXP";
 
@@ -29,11 +32,21 @@ public class GlViewWrapper extends GLSurfaceView implements GLSurfaceView.Render
         getHolder().setFormat(PixelFormat.TRANSPARENT);
         setZOrderOnTop(true);
         setRenderer(this);
+        // 额外的 surface 销毁监听：不覆盖父类的 surfaceDestroyed，
+        // 而是通过 addCallback 添加独立的回调，确保 GLSurfaceView 内部清理正常执行
+        getHolder().addCallback(new SurfaceHolder.Callback() {
+            @Override public void surfaceCreated(SurfaceHolder holder) {}
+            @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {}
+            @Override public void surfaceDestroyed(SurfaceHolder holder) {
+                Log.i(TAG, "GlViewWrapper surfaceDestroyed (extra callback): notify native GL context lost");
+                OverlayHelper.onSurfaceDestroyed();
+            }
+        });
     }
 
     @Override
     public void onSurfaceCreated(GL10 gl, EGLConfig config) {
-        Log.i(TAG, "GlViewWrapper.onSurfaceCreated");
+        Log.i(TAG, "GlViewWrapper.onSurfaceCreated (Renderer)");
         NativeMethods.onSurfaceCreate();
     }
 
@@ -46,24 +59,6 @@ public class GlViewWrapper extends GLSurfaceView implements GLSurfaceView.Render
     @Override
     public void onDrawFrame(GL10 gl) {
         NativeMethods.onDrawFrame();
-    }
-
-    // SurfaceHolder.Callback2 — 通知 native GL 上下文丢失
-    @Override
-    public void surfaceRedrawNeeded(SurfaceHolder holder) {}
-
-    @Override
-    public void surfaceCreated(SurfaceHolder holder) {
-        Log.i(TAG, "GlViewWrapper.surfaceCreated");
-    }
-
-    @Override
-    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {}
-
-    @Override
-    public void surfaceDestroyed(SurfaceHolder holder) {
-        Log.i(TAG, "GlViewWrapper.surfaceDestroyed: notify native GL context lost");
-        OverlayHelper.onSurfaceDestroyed();
     }
 
     /** 自定义 EGLContextFactory，捕获上下文创建失败，避免崩溃 */
