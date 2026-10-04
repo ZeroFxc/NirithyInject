@@ -25,7 +25,7 @@ public class OverlayHelper {
     private static GlViewWrapper sGlView;
     private static boolean sStarted = false;
 
-    /** 通过反射获取当前栈顶 Activity */
+    /** 通过反射获取当前栈顶 Activity（未 paused 的） */
     private static Activity getCurrentActivity() {
         try {
             Class<?> activityThreadClass = Class.forName("android.app.ActivityThread");
@@ -35,14 +35,26 @@ public class OverlayHelper {
             Map<?, ?> activities = (Map<?, ?>) activitiesField.get(activityThread);
             if (activities == null)
                 return null;
+            Activity fallback = null;
             for (Object activityRecord : activities.values()) {
                 Class<?> recordClass = activityRecord.getClass();
                 Field activityField = recordClass.getDeclaredField("activity");
                 activityField.setAccessible(true);
                 Activity activity = (Activity) activityField.get(activityRecord);
-                if (activity != null)
-                    return activity;
+                if (activity == null)
+                    continue;
+                if (fallback == null)
+                    fallback = activity;
+                // 优先返回未 paused 的 Activity（栈顶）
+                try {
+                    Field pausedField = recordClass.getDeclaredField("paused");
+                    pausedField.setAccessible(true);
+                    if (!pausedField.getBoolean(activityRecord))
+                        return activity;
+                } catch (Exception ignored) {
+                }
             }
+            return fallback;
         } catch (Exception e) {
             e.printStackTrace();
         }
