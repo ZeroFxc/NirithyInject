@@ -99,7 +99,15 @@ static void *hooked_dlsym(void *handle, const char *symbol)
 {
     void *fn = orig_dlsym(handle, symbol);
     if (symbol && strcmp(symbol, "vkGetInstanceProcAddr") == 0)
+    {
+        static bool logged = false;
+        if (!logged)
+        {
+            LOGI("dlsym intercept: vkGetInstanceProcAddr -> hooked (orig=%p)", fn);
+            logged = true;
+        }
         return (void *)hooked_vkGetInstanceProcAddr;
+    }
     return fn;
 }
 
@@ -404,6 +412,10 @@ static bool createRenderPassLocked()
 
 static bool rebuildSwapchainLocked(VkSwapchainKHR sc, const VkSwapchainCreateInfoKHR *ci)
 {
+    LOGI("rebuildSwapchain start: sc=%p format=%d %ux%u minImage=%u",
+         (void *)sc, ci ? (int)ci->imageFormat : -1,
+         ci ? ci->imageExtent.width : 0, ci ? ci->imageExtent.height : 0,
+         ci ? ci->minImageCount : 0);
     destroyOverlayLocked();
     g_ov.swapchain = sc;
     if (ci)
@@ -413,21 +425,36 @@ static bool rebuildSwapchainLocked(VkSwapchainKHR sc, const VkSwapchainCreateInf
         g_ov.minImageCount = ci->minImageCount;
     }
     if (g_ov.extent.width == 0 || g_ov.extent.height == 0)
+    {
+        LOGE("rebuildSwapchain: zero extent");
         return false;
+    }
     if (!createRenderPassLocked())
+    {
+        LOGE("rebuildSwapchain: createRenderPass failed");
         return false;
+    }
+    LOGI("rebuildSwapchain: renderPass created");
 
     VkCommandPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolInfo.queueFamilyIndex = g_ov.queueFamily;
     if (pvkCreateCommandPool(g_ov.device, &poolInfo, nullptr, &g_ov.cmdPool) != VK_SUCCESS)
+    {
+        LOGE("rebuildSwapchain: createCommandPool failed");
         return false;
+    }
+    LOGI("rebuildSwapchain: cmdPool created");
 
     uint32_t count = 0;
     pvkGetSwapchainImagesKHR(g_ov.device, sc, &count, nullptr);
     if (count == 0)
+    {
+        LOGE("rebuildSwapchain: 0 swapchain images");
         return false;
+    }
+    LOGI("rebuildSwapchain: %u swapchain images", count);
     std::vector<VkImage> images(count);
     pvkGetSwapchainImagesKHR(g_ov.device, sc, &count, images.data());
     g_ov.frames.resize(count);
@@ -546,6 +573,14 @@ static void ensureImguiContext(uint32_t w, uint32_t h)
 static VkResult hooked_vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *info)
 {
     g_vkActive = true;
+    static bool firstCall = true;
+    if (firstCall)
+    {
+        LOGI("vkQueuePresentKHR first call: swapchainCount=%u device=%p imguiVulkan=%d frames=%zu menu=%p",
+             info ? info->swapchainCount : 0, (void *)g_ov.device,
+             g_ov.imguiVulkan ? 1 : 0, g_ov.frames.size(), (void *)menuAddress);
+        firstCall = false;
+    }
     if (!info || info->swapchainCount == 0 || !orig_vkQueuePresentKHR)
         return orig_vkQueuePresentKHR ? orig_vkQueuePresentKHR(queue, info) : VK_ERROR_DEVICE_LOST;
 
@@ -666,11 +701,23 @@ static PFN_vkVoidFunction hooked_vkGetDeviceProcAddr(VkDevice device, const char
     if (!pName)
         return fn;
     if (strcmp(pName, "vkQueuePresentKHR") == 0)
+    {
+        static bool logged = false;
+        if (!logged) { LOGI("GDPA intercept: vkQueuePresentKHR -> hooked"); logged = true; }
         return (PFN_vkVoidFunction)hooked_vkQueuePresentKHR;
+    }
     if (strcmp(pName, "vkCreateSwapchainKHR") == 0)
+    {
+        static bool logged = false;
+        if (!logged) { LOGI("GDPA intercept: vkCreateSwapchainKHR -> hooked"); logged = true; }
         return (PFN_vkVoidFunction)hooked_vkCreateSwapchainKHR;
+    }
     if (strcmp(pName, "vkDestroySwapchainKHR") == 0)
+    {
+        static bool logged = false;
+        if (!logged) { LOGI("GDPA intercept: vkDestroySwapchainKHR -> hooked"); logged = true; }
         return (PFN_vkVoidFunction)hooked_vkDestroySwapchainKHR;
+    }
     return fn;
 }
 
@@ -682,7 +729,11 @@ static PFN_vkVoidFunction hooked_vkGetInstanceProcAddr(VkInstance instance, cons
     if (!pName)
         return fn;
     if (strcmp(pName, "vkGetDeviceProcAddr") == 0)
+    {
+        static bool logged = false;
+        if (!logged) { LOGI("GIPA intercept: vkGetDeviceProcAddr -> hooked"); logged = true; }
         return (PFN_vkVoidFunction)hooked_vkGetDeviceProcAddr;
+    }
     return fn;
 }
 
