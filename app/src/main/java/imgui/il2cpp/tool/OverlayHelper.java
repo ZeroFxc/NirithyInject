@@ -106,12 +106,21 @@ public class OverlayHelper {
                         @Override public void onActivityCreated(Activity a, Bundle savedInstanceState) {}
                         @Override public void onActivityStarted(Activity a) {}
                         @Override public void onActivityResumed(Activity a) {
+                            android.util.Log.i("MXP", "onActivityResumed: " + a.getClass().getSimpleName()
+                                    + " current=" + (sCurrentActivity != null ? sCurrentActivity.getClass().getSimpleName() : "null")
+                                    + " glView=" + (sGlView != null ? "attached" : "null"));
                             if (a != sCurrentActivity || sGlView == null) {
-                                android.util.Log.i("MXP", "onActivityResumed: rebind to " + a.getClass().getSimpleName());
                                 removeOverlay();
                                 sCurrentActivity = a;
                                 // 等 DecorView 布局完成后再创建，避免拿不到 surface
-                                a.getWindow().getDecorView().post(() -> createOverlay(a));
+                                // 用 postDelayed 确保 Activity 完全 resume（参考 IL2CPP MCP 的 waiting for activity resume）
+                                a.getWindow().getDecorView().postDelayed(() -> {
+                                    if (sCurrentActivity == a) {
+                                        createOverlay(a);
+                                    } else {
+                                        android.util.Log.i("MXP", "onActivityResumed: activity changed before createOverlay, skip");
+                                    }
+                                }, 100);
                             }
                         }
                         @Override public void onActivityPaused(Activity a) {}
@@ -142,7 +151,13 @@ public class OverlayHelper {
 
     private static void createOverlay(Activity activity) {
         try {
-            android.util.Log.i("MXP", "createOverlay: " + activity.getClass().getSimpleName());
+            android.util.Log.i("MXP", "createOverlay: " + activity.getClass().getSimpleName()
+                    + " isFinishing=" + activity.isFinishing()
+                    + " isDestroyed=" + activity.isDestroyed());
+            if (activity.isFinishing() || activity.isDestroyed()) {
+                android.util.Log.w("MXP", "createOverlay: activity finishing/destroyed, skip");
+                return;
+            }
             WindowManager wm = activity.getWindowManager();
             Display display = wm.getDefaultDisplay();
             Point size = new Point();
@@ -150,6 +165,7 @@ public class OverlayHelper {
 
             Context displayContext = activity.createDisplayContext(display);
             sGlView = new GlViewWrapper(displayContext);
+            android.util.Log.i("MXP", "createOverlay: GlViewWrapper created " + size.x + "x" + size.y);
 
             // 优先安装 Window touch routing（hook dispatchTouchEvent）
             installWindowTouch(activity);
@@ -176,7 +192,8 @@ public class OverlayHelper {
 
             wm.addView(sGlView, lp);
             android.util.Log.i("MXP", "createOverlay: addView done " + size.x + "x" + size.y
-                    + " windowTouch=" + sWindowTouchInstalled);
+                    + " windowTouch=" + sWindowTouchInstalled
+                    + " glViewParent=" + (sGlView.getParent() != null ? "attached" : "null"));
         } catch (Exception e) {
             android.util.Log.e("MXP", "createOverlay failed", e);
             sGlView = null;
