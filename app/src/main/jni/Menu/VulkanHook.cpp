@@ -21,6 +21,8 @@
 #include <string>
 #include <unistd.h>
 #include <dlfcn.h>
+#include <link.h>
+#include <elf.h>
 #include <vector>
 #include <unordered_map>
 
@@ -79,6 +81,8 @@ static PFN_vkCreateDevice orig_vkCreateDevice = nullptr;
 static PFN_vkCreateSwapchainKHR orig_vkCreateSwapchainKHR = nullptr;
 static PFN_vkDestroySwapchainKHR orig_vkDestroySwapchainKHR = nullptr;
 static PFN_vkQueuePresentKHR orig_vkQueuePresentKHR = nullptr;
+static PFN_vkGetInstanceProcAddr orig_vkGetInstanceProcAddr = nullptr;
+static PFN_vkGetDeviceProcAddr orig_vkGetDeviceProcAddr = nullptr;
 
 struct OverlayFrame
 {
@@ -114,6 +118,113 @@ static void loadVulkanProc(void *lib)
 {
     pvkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(lib, "vkGetInstanceProcAddr");
     pvkGetDeviceProcAddr = (PFN_vkGetDeviceProcAddr)dlsym(lib, "vkGetDeviceProcAddr");
+}
+
+// === GOT hook (PLT hook) ===
+// 修改调用方 .so 的 GOT 表，不触碰 libvulkan.so 代码段，规避 Android 16 PAC/BTI。
+#ifdef __LP64__
+#define ELFW_R_SYM ELF64_R_SYM
+#else
+#define ELFW_R_SYM ELF32_R_SYM
+#endif
+
+struct GotHookEntry
+{
+    const char *symbol;
+    void *replace;
+    void **orig;
+    bool found;
+};
+
+static int gotHookPhdrCallback(struct dl_phdr_info *info, size_t size, void *data)
+{
+    auto *entries = (std::vector<GotHookEntry> *)data;
+    if (!info->dlpi_name || info->dlpi_name[0] == '\0')
+        return 0;
+    // 只 hook 调用方，不碰 libvulkan.so 自身和我们自己的库
+    if (strstr(info->dlpi_name, "libvulkan.so"))
+        return 0;
+    if (strstr(info->dlpi_name, "libTool.so"))
+        return 0;
+
+    uintptr_t base = info->dlpi_addr;
+    const ElfW(Ehdr) *ehdr = (const ElfW(Ehdr) *)base;
+    if (ehdr->e_ident[EI_MAG0] != ELFMAG0 || ehdr->e_ident[EI_MAG1] != ELFMAG1 ||
+        ehdr->e_ident[EI_MAG2] != ELFMAG2 || ehdr->e_ident[EI_MAG3] != ELFMAG3)
+        return 0;
+
+    const ElfW(Phdr) *dynPhdr = nullptr;
+    for (int i = 0; i < ehdr->e_phnum; i++)
+    {
+        const ElfW(Phdr) *ph = (const ElfW(Phdr) *)(base + ehdr->e_phoff + (size_t)i * ehdr->e_phentsize);
+        if (ph->p_type == PT_DYNAMIC)
+        {
+            dynPhdr = ph;
+            break;
+        }
+    }
+    if (!dynPhdr)
+        return 0;
+
+    const ElfW(Dyn) *dyn = (const ElfW(Dyn) *)(base + dynPhdr->p_vaddr);
+    const char *strtab = nullptr;
+    const ElfW(Sym) *symtab = nullptr;
+    const uint8_t *jmprel = nullptr;
+    size_t pltrelsz = 0;
+    int pltrel = DT_RELA;
+
+    for (; dyn->d_tag != DT_NULL; dyn++)
+    {
+        switch (dyn->d_tag)
+        {
+        case DT_STRTAB: strtab = (const char *)(base + dyn->d_un.d_ptr); break;
+        case DT_SYMTAB: symtab = (const ElfW(Sym) *)(base + dyn->d_un.d_ptr); break;
+        case DT_JMPREL: jmprel = (const uint8_t *)(base + dyn->d_un.d_ptr); break;
+        case DT_PLTRELSZ: pltrelsz = dyn->d_un.d_val; break;
+        case DT_PLTREL: pltrel = (int)dyn->d_un.d_val; break;
+        }
+    }
+    if (!strtab || !symtab || !jmprel || pltrelsz == 0)
+        return 0;
+
+    size_t entsize = (pltrel == DT_RELA) ? sizeof(ElfW(Rela)) : sizeof(ElfW(Rel));
+    size_t count = pltrelsz / entsize;
+
+    for (size_t i = 0; i < count; i++)
+    {
+        const char *symName = nullptr;
+        uintptr_t *gotEntry = nullptr;
+        if (pltrel == DT_RELA)
+        {
+            const ElfW(Rela) *rel = (const ElfW(Rela) *)(jmprel + i * entsize);
+            symName = strtab + symtab[ELFW_R_SYM(rel->r_info)].st_name;
+            gotEntry = (uintptr_t *)(base + rel->r_offset);
+        }
+        else
+        {
+            const ElfW(Rel) *rel = (const ElfW(Rel) *)(jmprel + i * entsize);
+            symName = strtab + symtab[ELFW_R_SYM(rel->r_info)].st_name;
+            gotEntry = (uintptr_t *)(base + rel->r_offset);
+        }
+        if (!symName)
+            continue;
+        for (auto &e : *entries)
+        {
+            if (!e.found && strcmp(symName, e.symbol) == 0)
+            {
+                *e.orig = (void *)*gotEntry;
+                *gotEntry = (uintptr_t)e.replace;
+                e.found = true;
+                LOGI("GOT hook %s in %s", e.symbol, info->dlpi_name);
+            }
+        }
+    }
+    return 0;
+}
+
+static void installGotHooks(std::vector<GotHookEntry> &entries)
+{
+    dl_iterate_phdr(gotHookPhdrCallback, &entries);
 }
 
 static PFN_vkVoidFunction loader(const char *name, void *ud)
@@ -489,6 +600,36 @@ static VkResult hooked_vkCreateDevice(VkPhysicalDevice phys, const VkDeviceCreat
     return r;
 }
 
+// GOT hook 层：游戏通过 GOT 调用 vkGetInstanceProcAddr 时进入这里。
+// 对 vkGetDeviceProcAddr 返回我们的包装，从而拦截 device-level 函数获取。
+static PFN_vkVoidFunction hooked_vkGetDeviceProcAddr(VkDevice device, const char *pName)
+{
+    if (!orig_vkGetDeviceProcAddr)
+        return nullptr;
+    PFN_vkVoidFunction fn = orig_vkGetDeviceProcAddr(device, pName);
+    if (!pName)
+        return fn;
+    if (strcmp(pName, "vkQueuePresentKHR") == 0)
+        return (PFN_vkVoidFunction)hooked_vkQueuePresentKHR;
+    if (strcmp(pName, "vkCreateSwapchainKHR") == 0)
+        return (PFN_vkVoidFunction)hooked_vkCreateSwapchainKHR;
+    if (strcmp(pName, "vkDestroySwapchainKHR") == 0)
+        return (PFN_vkVoidFunction)hooked_vkDestroySwapchainKHR;
+    return fn;
+}
+
+static PFN_vkVoidFunction hooked_vkGetInstanceProcAddr(VkInstance instance, const char *pName)
+{
+    if (!orig_vkGetInstanceProcAddr)
+        return nullptr;
+    PFN_vkVoidFunction fn = orig_vkGetInstanceProcAddr(instance, pName);
+    if (!pName)
+        return fn;
+    if (strcmp(pName, "vkGetDeviceProcAddr") == 0)
+        return (PFN_vkVoidFunction)hooked_vkGetDeviceProcAddr;
+    return fn;
+}
+
 // 注意：这里刻意【不使用】Dobby inline hook vkGetInstanceProcAddr / vkGetDeviceProcAddr。
 // Android 16（该设备 Build fingerprint 为 OnePlus/OP60EBL1:16）启用了 PAC/BTI，libvulkan.so
 // 中这两个导出函数的入口首条指令是 BTI landing pad（bti c，编码 0xd503245f）。Dobby 覆盖入口
@@ -542,6 +683,19 @@ void initVulkanHooks()
         LOGI("DobbyHook vkCreateSwapchainKHR failed");
     if (destroySc && DobbyHook(destroySc, (void *)hooked_vkDestroySwapchainKHR, (void **)&orig_vkDestroySwapchainKHR) != 0)
         LOGI("DobbyHook vkDestroySwapchainKHR failed");
+
+    // GOT hook vkGetInstanceProcAddr：拦截游戏通过 GOT 调用的 GIPA，
+    // 进而拦截 vkGetDeviceProcAddr 和 device-level 函数获取。
+    // 对 Unity/UE 等通过 GetProcAddr 拿函数指针直接调用的引擎生效。
+    // 只改调用方 GOT 表（数据段），不碰 libvulkan.so 代码，无 PAC/BTI 问题。
+    orig_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(g_vulkanLib, OBFUSCATE("vkGetInstanceProcAddr"));
+    orig_vkGetDeviceProcAddr = (PFN_vkGetDeviceProcAddr)dlsym(g_vulkanLib, OBFUSCATE("vkGetDeviceProcAddr"));
+    std::vector<GotHookEntry> gotEntries = {
+        {OBFUSCATE("vkGetInstanceProcAddr"), (void *)hooked_vkGetInstanceProcAddr, (void **)&orig_vkGetInstanceProcAddr, false},
+    };
+    installGotHooks(gotEntries);
+    if (!gotEntries[0].found)
+        LOGI("GOT hook vkGetInstanceProcAddr: no module matched (may use direct symbols)");
 
     LOGI("Vulkan overlay hooks installed");
 }
