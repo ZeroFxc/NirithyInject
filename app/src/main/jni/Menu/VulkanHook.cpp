@@ -24,6 +24,7 @@
 #include <dlfcn.h>
 #include <link.h>
 #include <elf.h>
+#include <sys/mman.h>
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
@@ -138,8 +139,6 @@ struct GotHookEntry
     bool found;
 };
 
-static std::unordered_set<std::string> g_gotHookedModules;
-static std::mutex g_gotMutex;
 static std::atomic<bool> g_gotHookDone{false};
 
 static int gotHookPhdrCallback(struct dl_phdr_info *info, size_t size, void *data)
@@ -152,27 +151,18 @@ static int gotHookPhdrCallback(struct dl_phdr_info *info, size_t size, void *dat
         return 0;
     if (strstr(info->dlpi_name, "libTool.so"))
         return 0;
-    // 跳过已处理的库（轮询时避免重复）
-    {
-        std::lock_guard<std::mutex> lock(g_gotMutex);
-        if (g_gotHookedModules.count(info->dlpi_name))
-            return 0;
-        g_gotHookedModules.insert(info->dlpi_name);
-    }
-
-    uintptr_t base = info->dlpi_addr;
-    const ElfW(Ehdr) *ehdr = (const ElfW(Ehdr) *)base;
-    if (ehdr->e_ident[EI_MAG0] != ELFMAG0 || ehdr->e_ident[EI_MAG1] != ELFMAG1 ||
-        ehdr->e_ident[EI_MAG2] != ELFMAG2 || ehdr->e_ident[EI_MAG3] != ELFMAG3)
+    if (!info->dlpi_phdr || info->dlpi_phnum == 0)
         return 0;
 
+    uintptr_t base = info->dlpi_addr;
+
+    // 用 dlpi_phdr 直接找 PT_DYNAMIC，不解析 ELF header
     const ElfW(Phdr) *dynPhdr = nullptr;
-    for (int i = 0; i < ehdr->e_phnum; i++)
+    for (int i = 0; i < (int)info->dlpi_phnum; i++)
     {
-        const ElfW(Phdr) *ph = (const ElfW(Phdr) *)(base + ehdr->e_phoff + (size_t)i * ehdr->e_phentsize);
-        if (ph->p_type == PT_DYNAMIC)
+        if (info->dlpi_phdr[i].p_type == PT_DYNAMIC)
         {
-            dynPhdr = ph;
+            dynPhdr = &info->dlpi_phdr[i];
             break;
         }
     }
@@ -202,6 +192,9 @@ static int gotHookPhdrCallback(struct dl_phdr_info *info, size_t size, void *dat
 
     size_t entsize = (pltrel == DT_RELA) ? sizeof(ElfW(Rela)) : sizeof(ElfW(Rel));
     size_t count = pltrelsz / entsize;
+    long pageSize = sysconf(_SC_PAGESIZE);
+    if (pageSize <= 0)
+        pageSize = 4096;
 
     for (size_t i = 0; i < count; i++)
     {
@@ -223,13 +216,19 @@ static int gotHookPhdrCallback(struct dl_phdr_info *info, size_t size, void *dat
             continue;
         for (auto &e : *entries)
         {
-            if (!e.found && strcmp(symName, e.symbol) == 0)
-            {
-                *e.orig = (void *)*gotEntry;
-                *gotEntry = (uintptr_t)e.replace;
-                e.found = true;
-                LOGI("GOT hook %s in %s", e.symbol, info->dlpi_name);
-            }
+            if (strcmp(symName, e.symbol) != 0)
+                continue;
+            // 已经是我们的值则跳过（轮询时重复扫描的幂等保护）
+            if (*gotEntry == (uintptr_t)e.replace)
+                continue;
+            // Android FULL RELRO: GOT 表只读，写入前必须 mprotect 设为可写
+            uintptr_t pageStart = (uintptr_t)gotEntry & ~((uintptr_t)pageSize - 1);
+            if (mprotect((void *)pageStart, (size_t)pageSize, PROT_READ | PROT_WRITE) != 0)
+                continue;
+            *e.orig = (void *)*gotEntry;
+            *gotEntry = (uintptr_t)e.replace;
+            e.found = true;
+            LOGI("GOT hook %s in %s", e.symbol, info->dlpi_name);
         }
     }
     return 0;
