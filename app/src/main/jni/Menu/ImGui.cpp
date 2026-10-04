@@ -48,13 +48,14 @@ int glHeight = 0;
 
 // GL 上下文丢失标志：Activity 切换导致 GLSurfaceView 重建时，旧 EGL 上下文里的
 // shader/texture 在新上下文中无效，需要重新初始化 ImGui_ImplOpenGL3。
-static bool g_glContextLost = false;
+// 用 atomic 保证主线程写入后 GL 线程立即可见。
+static std::atomic<bool> g_glContextLost{false};
 
 // 由 OverlayHelper.nativeOnSurfaceDestroyed 调用（Main.cpp 中转）
 void markGlContextLost()
 {
     LOGI("markGlContextLost: EGL surface destroyed, OpenGL3 backend will reinit on next surface");
-    g_glContextLost = true;
+    g_glContextLost.store(true, std::memory_order_release);
 }
 
 // 由 Main.cpp 定义的窗口重排标志：置位后菜单会按新的显示尺寸重新计算窗口位置
@@ -590,17 +591,17 @@ void menuStyle(int theme)
 void setupMenu()
 {
     LOGI("setupMenu: enter, isInitialized=%d glContextLost=%d glWidth=%d glHeight=%d",
-         (int)isInitialized, (int)g_glContextLost, glWidth, glHeight);
+         (int)isInitialized, (int)g_glContextLost.load(), glWidth, glHeight);
 
     if (isInitialized)
     {
         // GL 上下文丢失（Activity 切换 / GLSurfaceView 重建）：重新初始化 OpenGL3 backend
-        if (g_glContextLost)
+        if (g_glContextLost.load(std::memory_order_acquire))
         {
             LOGI("setupMenu: GL context lost, reinitializing ImGui_ImplOpenGL3");
             ImGui_ImplOpenGL3_Shutdown();
             ImGui_ImplOpenGL3_Init("#version 300 es");
-            g_glContextLost = false;
+            g_glContextLost.store(false, std::memory_order_release);
             LOGI("setupMenu: ImGui_ImplOpenGL3 reinitialized");
         }
         return;
@@ -673,7 +674,7 @@ void internalDrawMenu(int width, int height)
 
     // GL 上下文丢失（Activity 切换 / GLSurfaceView 重建）：跳过渲染，
     // 等待 setupMenu 在下一个 surface 上重新初始化 ImGui_ImplOpenGL3
-    if (g_glContextLost)
+    if (g_glContextLost.load(std::memory_order_acquire))
     {
         if (fc % 60 == 0)
             LOGI("internalDrawMenu: frame=%llu skip, GL context lost", (unsigned long long)fc);

@@ -285,13 +285,14 @@ public class OverlayHelper {
         if (sGlView != null && sCurrentActivity != null) {
             try {
                 restoreWindowTouch(sCurrentActivity);
-                // 先通知 native GL 上下文丢失，让渲染线程跳过渲染（避免 removeView 时竞态崩溃）
+                // 先通知 native GL 上下文丢失（atomic），让渲染线程立即跳过渲染
                 nativeOnSurfaceDestroyed();
-                // 暂停 GL 线程，等待当前帧完成
-                sGlView.onPause();
+                // 不调用 onPause()：GLSurfaceView.onPause 会等待 GL 线程停止，
+                // 若此时 GL 线程正卡在 JNI 调用里可能死锁或状态不一致。
+                // 直接 removeView，依赖 g_glContextLost 原子检查跳过渲染。
                 WindowManager wm = sCurrentActivity.getWindowManager();
                 wm.removeView(sGlView);
-                android.util.Log.i("MXP", "removeOverlay: GL paused + view removed");
+                android.util.Log.i("MXP", "removeOverlay: view removed (no onPause)");
             } catch (Exception ignored) {
             }
             sGlView = null;
