@@ -306,8 +306,17 @@ tasks.configureEach { task ->
 // 运行时用 InMemoryDexClassLoader 加载，无需文件系统权限。
 task generateDexHeader {
     doLast {
-        def dexFiles = fileTree(dir: "$buildDir/intermediates/dex", include: "**/classes.dex").files
-        def dexFile = dexFiles.find { it.exists() }
+        // 优先选项目代码 dex（mergeProjectDexDebug），不选外部依赖 dex（mergeExtDexDebug）
+        def projectDexDir = file("$buildDir/intermediates/dex/debug/mergeProjectDexDebug")
+        def dexFile = null
+        if (projectDexDir.exists()) {
+            def candidates = fileTree(dir: projectDexDir, include: "**/classes*.dex").files.sort { -it.lastModified() }
+            dexFile = candidates.find { it.exists() }
+        }
+        if (dexFile == null) {
+            def allDex = fileTree(dir: "$buildDir/intermediates/dex", include: "**/classes*.dex").files
+            dexFile = allDex.find { it.exists() && !it.path.contains("mergeExtDex") }
+        }
         def outputFile = file("src/main/jni/overlay_dex.h")
         if (dexFile) {
             def bytes = dexFile.bytes
