@@ -604,11 +604,18 @@ void setupMenu()
     ImGui::GetStyle().ScrollbarSize *= 2.5f;
     menuStyle(0);
 
-    if (onInitAddr)
-        onInitAddr();
-
     isInitialized = true;
     LOGI("setup done.");
+
+    // IL2CPP 初始化放后台线程，不阻塞 GL 渲染（参考 IL2CPP MCP 的双线程架构）
+    if (onInitAddr)
+    {
+        std::thread([] {
+            LOGI("on_init thread start");
+            onInitAddr();
+            LOGI("on_init thread done");
+        }).detach();
+    }
 }
 
 static void applyOverlayGlState()
