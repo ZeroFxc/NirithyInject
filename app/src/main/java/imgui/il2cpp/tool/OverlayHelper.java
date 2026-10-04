@@ -110,16 +110,26 @@ public class OverlayHelper {
 
                 // 注册 Activity 生命周期回调（参考 IL2CPP MCP：overlay bridge ready; waiting for a foreground Activity）
                 sLifecycleCallbacks = new Application.ActivityLifecycleCallbacks() {
-                    @Override public void onActivityCreated(Activity a, Bundle savedInstanceState) {}
-                    @Override public void onActivityStarted(Activity a) {}
+                    @Override public void onActivityCreated(Activity a, Bundle savedInstanceState) {
+                        android.util.Log.i("MXP", "onActivityCreated: " + a.getClass().getSimpleName());
+                    }
+                    @Override public void onActivityStarted(Activity a) {
+                        android.util.Log.i("MXP", "onActivityStarted: " + a.getClass().getSimpleName());
+                    }
                     @Override public void onActivityResumed(Activity a) {
                         android.util.Log.i("MXP", "onActivityResumed: " + a.getClass().getSimpleName()
                                 + " current=" + (sCurrentActivity != null ? sCurrentActivity.getClass().getSimpleName() : "null")
                                 + " glView=" + (sGlView != null ? "attached" : "null"));
                         bindToActivity(a);
                     }
-                    @Override public void onActivityPaused(Activity a) {}
-                    @Override public void onActivityStopped(Activity a) {}
+                    @Override public void onActivityPaused(Activity a) {
+                        android.util.Log.i("MXP", "onActivityPaused: " + a.getClass().getSimpleName()
+                                + " isCurrent=" + (a == sCurrentActivity));
+                    }
+                    @Override public void onActivityStopped(Activity a) {
+                        android.util.Log.i("MXP", "onActivityStopped: " + a.getClass().getSimpleName()
+                                + " isCurrent=" + (a == sCurrentActivity));
+                    }
                     @Override public void onActivitySaveInstanceState(Activity a, Bundle outState) {}
                     @Override public void onActivityDestroyed(Activity a) {
                         if (a == sCurrentActivity) {
@@ -282,22 +292,32 @@ public class OverlayHelper {
     }
 
     private static void removeOverlay() {
-        if (sGlView != null && sCurrentActivity != null) {
-            try {
-                restoreWindowTouch(sCurrentActivity);
-                // 先通知 native GL 上下文丢失（atomic），让渲染线程立即跳过渲染
-                nativeOnSurfaceDestroyed();
-                // 等待 GL 线程完成当前帧并看到 g_glContextLost=true。
-                // 60fps 下每帧 ~16ms，100ms 足够完成至少几帧并进入跳过逻辑。
-                // 不能用 onPause()：会等待 GL 线程停止，若正卡在 JNI 调用可能死锁。
-                try { Thread.sleep(100); } catch (InterruptedException ignored) {}
-                WindowManager wm = sCurrentActivity.getWindowManager();
-                wm.removeView(sGlView);
-                android.util.Log.i("MXP", "removeOverlay: view removed (after 100ms grace)");
-            } catch (Exception ignored) {
-            }
-            sGlView = null;
+        if (sGlView == null) {
+            android.util.Log.i("MXP", "removeOverlay: sGlView already null, skip");
+            return;
         }
+        if (sCurrentActivity == null) {
+            android.util.Log.w("MXP", "removeOverlay: sCurrentActivity null, cannot removeView");
+            sGlView = null;
+            return;
+        }
+        try {
+            android.util.Log.i("MXP", "removeOverlay: begin, activity=" + sCurrentActivity.getClass().getSimpleName()
+                    + " glViewParent=" + (sGlView.getParent() != null ? "attached" : "detached"));
+            restoreWindowTouch(sCurrentActivity);
+            // 先通知 native GL 上下文丢失（atomic），让渲染线程立即跳过渲染
+            nativeOnSurfaceDestroyed();
+            // 等待 GL 线程完成当前帧并看到 g_glContextLost=true。
+            // 60fps 下每帧 ~16ms，100ms 足够完成至少几帧并进入跳过逻辑。
+            // 不能用 onPause()：会等待 GL 线程停止，若正卡在 JNI 调用可能死锁。
+            try { Thread.sleep(100); } catch (InterruptedException ignored) {}
+            WindowManager wm = sCurrentActivity.getWindowManager();
+            wm.removeView(sGlView);
+            android.util.Log.i("MXP", "removeOverlay: view removed (after 100ms grace)");
+        } catch (Exception e) {
+            android.util.Log.e("MXP", "removeOverlay: exception", e);
+        }
+        sGlView = null;
     }
 
     /** GlViewWrapper surface 销毁时调用，通知 native GL 上下文丢失 */

@@ -670,7 +670,9 @@ void internalDrawMenu(int width, int height)
 {
     static std::atomic<uint64_t> frameCount{0};
     static auto lastLogTime = std::chrono::steady_clock::now();
+    static float lastRenderMs = 0;
     uint64_t fc = frameCount.fetch_add(1);
+    auto t0 = std::chrono::steady_clock::now();
 
     // GL 上下文丢失（Activity 切换 / GLSurfaceView 重建）：跳过渲染，
     // 等待 setupMenu 在下一个 surface 上重新初始化 ImGui_ImplOpenGL3
@@ -689,15 +691,6 @@ void internalDrawMenu(int width, int height)
         if (fc % 60 == 0)
             LOGI("internalDrawMenu: frame=%llu but isInitialized=false, skip", (unsigned long long)fc);
         return;
-    }
-
-    // 每 300 帧（约5秒@60fps）打一次心跳，证明渲染循环在跑
-    auto now = std::chrono::steady_clock::now();
-    if (fc % 300 == 0 || std::chrono::duration_cast<std::chrono::seconds>(now - lastLogTime).count() >= 5)
-    {
-        lastLogTime = now;
-        LOGI("internalDrawMenu: heartbeat frame=%llu size=%dx%d drawData=%p",
-             (unsigned long long)fc, width, height, (void *)ImGui::GetDrawData());
     }
 
     ImGui::GetIO().DisplaySize = ImVec2((float)width, (float)height);
@@ -733,7 +726,17 @@ void internalDrawMenu(int width, int height)
         glClear(GL_COLOR_BUFFER_BIT);
     }
 
-    ImGui_ImplOpenGL3_RenderDrawData(drawData);
+    if (drawData && drawData->CmdListsCount > 0)
+    {
+        ImGui_ImplOpenGL3_RenderDrawData(drawData);
+        // GL 错误检查：渲染后立即检查，第一帧和每300帧检查
+        if (fc == 0 || fc % 300 == 0)
+        {
+            GLenum err = glGetError();
+            if (err != GL_NO_ERROR)
+                LOGE("internalDrawMenu: GL error after RenderDrawData: 0x%x (frame=%llu)", err, (unsigned long long)fc);
+        }
+    }
 
     if (srgb)
     {
@@ -742,6 +745,21 @@ void internalDrawMenu(int width, int height)
     }
 
     applyFpsLimit();
+
+    // 帧耗时统计（每300帧或5秒打一次）
+    auto t1 = std::chrono::steady_clock::now();
+    float ms = std::chrono::duration<float, std::milli>(t1 - t0).count();
+    lastRenderMs = lastRenderMs == 0 ? ms : lastRenderMs * 0.9f + ms * 0.1f;
+    if (fc % 300 == 0 || std::chrono::duration_cast<std::chrono::seconds>(t1 - lastLogTime).count() >= 5)
+    {
+        lastLogTime = t1;
+        LOGI("internalDrawMenu: heartbeat frame=%llu size=%dx%d drawData=%p CmdLists=%d Vtx=%d Idx=%d renderMs=%.2f(avg %.2f)",
+             (unsigned long long)fc, width, height, (void *)drawData,
+             drawData ? drawData->CmdListsCount : -1,
+             drawData ? drawData->TotalVtxCount : -1,
+             drawData ? drawData->TotalIdxCount : -1,
+             ms, lastRenderMs);
+    }
 }
 
 static int g_overlayWidth = 0;

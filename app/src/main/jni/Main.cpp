@@ -932,6 +932,28 @@ extern "C"
     JNIEXPORT void JNICALL Java_imgui_il2cpp_tool_OverlayHelper_nativeOnTouch(
         JNIEnv *env, jclass clazz, jint action, jfloat x, jfloat y, jint pointerId, jlong eventTime)
     {
+        // touch 事件统计：每秒汇总一次，诊断输入是否在工作
+        static std::atomic<uint64_t> touchCount{0};
+        static std::atomic<uint64_t> downCount{0};
+        static std::atomic<uint64_t> moveCount{0};
+        static std::atomic<uint64_t> upCount{0};
+        static auto lastTouchLog = std::chrono::steady_clock::now();
+        uint64_t tc = touchCount.fetch_add(1);
+        switch (action & 0xFF)
+        {
+        case 0: downCount.fetch_add(1); break;
+        case 2: moveCount.fetch_add(1); break;
+        case 1: case 3: upCount.fetch_add(1); break;
+        }
+        auto now = std::chrono::steady_clock::now();
+        if (tc == 0 || std::chrono::duration_cast<std::chrono::seconds>(now - lastTouchLog).count() >= 1)
+        {
+            lastTouchLog = now;
+            LOGI("nativeOnTouch: total=%llu down=%llu move=%llu up=%llu (action=%d x=%.1f y=%.1f)",
+                 (unsigned long long)tc, (unsigned long long)downCount.load(),
+                 (unsigned long long)moveCount.load(), (unsigned long long)upCount.load(),
+                 action, x, y);
+        }
         ImGuiIO &io = ImGui::GetIO();
         io.AddMouseSourceEvent(ImGuiMouseSource_TouchScreen);
         switch (action & 0xFF)
@@ -954,6 +976,7 @@ extern "C"
     // GlViewWrapper surface 销毁时调用：标记 GL 上下文丢失，下次 onSurfaceCreate 时重新初始化 OpenGL3 backend
     JNIEXPORT void JNICALL Java_imgui_il2cpp_tool_OverlayHelper_nativeOnSurfaceDestroyed(JNIEnv *env, jclass clazz)
     {
+        LOGI("nativeOnSurfaceDestroyed: JNI called from GlViewWrapper surfaceDestroyed callback");
         markGlContextLost();
     }
 }

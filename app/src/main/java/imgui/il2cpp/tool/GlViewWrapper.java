@@ -23,6 +23,13 @@ public class GlViewWrapper extends GLSurfaceView implements GLSurfaceView.Render
 
     private static final String TAG = "MXP";
 
+    // 帧统计：用于诊断渲染是否在跑、帧率多少
+    private long mFrameCount = 0;
+    private long mFirstFrameTime = 0;
+    private long mLastHeartbeatTime = 0;
+    private long mLastFrameTime = 0;
+    private float mFps = 0;
+
     public GlViewWrapper(Context context) {
         super(context);
         Log.i(TAG, "GlViewWrapper constructor: setting up GLES3 GLSurfaceView");
@@ -39,13 +46,16 @@ public class GlViewWrapper extends GLSurfaceView implements GLSurfaceView.Render
         // 而是通过 addCallback 添加独立的回调，确保 GLSurfaceView 内部清理正常执行
         getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override public void surfaceCreated(SurfaceHolder holder) {
-                Log.i(TAG, "GlViewWrapper extra callback: surfaceCreated holder=" + holder);
+                Log.i(TAG, "GlViewWrapper extra callback: surfaceCreated holder=" + holder
+                        + " surface=" + holder.getSurface()
+                        + " valid=" + holder.getSurface().isValid());
             }
             @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
                 Log.i(TAG, "GlViewWrapper extra callback: surfaceChanged " + width + "x" + height + " fmt=" + format);
             }
             @Override public void surfaceDestroyed(SurfaceHolder holder) {
-                Log.i(TAG, "GlViewWrapper extra callback: surfaceDestroyed, notify native GL context lost");
+                Log.i(TAG, "GlViewWrapper extra callback: surfaceDestroyed, totalFrames=" + mFrameCount
+                        + ", notify native GL context lost");
                 OverlayHelper.onSurfaceDestroyed();
             }
         });
@@ -54,6 +64,19 @@ public class GlViewWrapper extends GLSurfaceView implements GLSurfaceView.Render
     @Override
     public void onSurfaceCreated(GL10 gl, EGLConfig config) {
         Log.i(TAG, "GlViewWrapper.onSurfaceCreated (Renderer)");
+        // 查询 GL 版本/渲染器，确认 EGL 上下文正确
+        try {
+            String glVersion = gl.glGetString(GL10.GL_VERSION);
+            String glRenderer = gl.glGetString(GL10.GL_RENDERER);
+            String glVendor = gl.glGetString(GL10.GL_VENDOR);
+            Log.i(TAG, "GL info: version=" + glVersion + " renderer=" + glRenderer + " vendor=" + glVendor);
+        } catch (Exception e) {
+            Log.w(TAG, "GL info query failed: " + e.getMessage());
+        }
+        mFrameCount = 0;
+        mFirstFrameTime = System.nanoTime();
+        mLastHeartbeatTime = mFirstFrameTime;
+        mLastFrameTime = mFirstFrameTime;
         NativeMethods.onSurfaceCreate();
     }
 
@@ -65,6 +88,27 @@ public class GlViewWrapper extends GLSurfaceView implements GLSurfaceView.Render
 
     @Override
     public void onDrawFrame(GL10 gl) {
+        long now = System.nanoTime();
+        mFrameCount++;
+        // 计算瞬时 FPS（滑动平均）
+        if (mLastFrameTime > 0) {
+            float instantFps = 1e9f / (now - mLastFrameTime);
+            mFps = mFps == 0 ? instantFps : mFps * 0.9f + instantFps * 0.1f;
+        }
+        mLastFrameTime = now;
+        // 首次帧日志
+        if (mFrameCount == 1) {
+            Log.i(TAG, "onDrawFrame: FIRST CALL, elapsed since surfaceCreated="
+                    + ((now - mFirstFrameTime) / 1_000_000) + "ms");
+        }
+        // 每 300 帧（约5秒@60fps）打一次心跳，证明渲染循环在跑
+        if (mFrameCount % 300 == 0) {
+            long elapsedSec = (now - mLastHeartbeatTime) / 1_000_000_000;
+            Log.i(TAG, "onDrawFrame: heartbeat frame=" + mFrameCount
+                    + " fps=" + String.format("%.1f", mFps)
+                    + " elapsed=" + elapsedSec + "s");
+            mLastHeartbeatTime = now;
+        }
         NativeMethods.onDrawFrame();
     }
 
