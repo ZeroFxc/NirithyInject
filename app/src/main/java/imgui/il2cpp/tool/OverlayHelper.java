@@ -82,9 +82,11 @@ public class OverlayHelper {
                         @Override public void onActivityResumed(Activity a) {
                             // 前台 Activity 变化时重新绑定 overlay
                             if (a != sCurrentActivity || sGlView == null) {
+                                android.util.Log.i("MXP", "onActivityResumed: rebind to " + a.getClass().getSimpleName());
                                 removeOverlay();
                                 sCurrentActivity = a;
-                                createOverlay(a);
+                                // 等 DecorView 布局完成后再创建，避免拿不到 surface
+                                a.getWindow().getDecorView().post(() -> createOverlay(a));
                             }
                         }
                         @Override public void onActivityPaused(Activity a) {}
@@ -92,6 +94,7 @@ public class OverlayHelper {
                         @Override public void onActivitySaveInstanceState(Activity a, Bundle outState) {}
                         @Override public void onActivityDestroyed(Activity a) {
                             if (a == sCurrentActivity) {
+                                android.util.Log.i("MXP", "onActivityDestroyed: " + a.getClass().getSimpleName());
                                 removeOverlay();
                                 sCurrentActivity = null;
                             }
@@ -115,6 +118,7 @@ public class OverlayHelper {
 
     private static void createOverlay(Activity activity) {
         try {
+            android.util.Log.i("MXP", "createOverlay: " + activity.getClass().getSimpleName());
             WindowManager wm = activity.getWindowManager();
             Display display = wm.getDefaultDisplay();
             Point size = new Point();
@@ -140,8 +144,10 @@ public class OverlayHelper {
             lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
 
             wm.addView(sGlView, lp);
+            android.util.Log.i("MXP", "createOverlay: addView done " + size.x + "x" + size.y);
         } catch (Exception e) {
-            e.printStackTrace();
+            android.util.Log.e("MXP", "createOverlay failed", e);
+            sGlView = null;
         }
     }
 
