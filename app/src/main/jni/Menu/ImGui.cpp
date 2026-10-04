@@ -671,6 +671,15 @@ void internalDrawMenu(int width, int height)
     static auto lastLogTime = std::chrono::steady_clock::now();
     uint64_t fc = frameCount.fetch_add(1);
 
+    // GL 上下文丢失（Activity 切换 / GLSurfaceView 重建）：跳过渲染，
+    // 等待 setupMenu 在下一个 surface 上重新初始化 ImGui_ImplOpenGL3
+    if (g_glContextLost)
+    {
+        if (fc % 60 == 0)
+            LOGI("internalDrawMenu: frame=%llu skip, GL context lost", (unsigned long long)fc);
+        return;
+    }
+
     if (fc == 0)
         LOGI("internalDrawMenu: FIRST FRAME (%dx%d), isInitialized=%d", width, height, (int)isInitialized);
 

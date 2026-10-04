@@ -285,8 +285,13 @@ public class OverlayHelper {
         if (sGlView != null && sCurrentActivity != null) {
             try {
                 restoreWindowTouch(sCurrentActivity);
+                // 先通知 native GL 上下文丢失，让渲染线程跳过渲染（避免 removeView 时竞态崩溃）
+                nativeOnSurfaceDestroyed();
+                // 暂停 GL 线程，等待当前帧完成
+                sGlView.onPause();
                 WindowManager wm = sCurrentActivity.getWindowManager();
                 wm.removeView(sGlView);
+                android.util.Log.i("MXP", "removeOverlay: GL paused + view removed");
             } catch (Exception ignored) {
             }
             sGlView = null;
