@@ -301,3 +301,38 @@ tasks.configureEach { task ->
         }
     }
 }
+
+// 生成 overlay_dex.h：把 classes.dex 转成 C 字节数组嵌入 native so，
+// 运行时用 InMemoryDexClassLoader 加载，无需文件系统权限。
+task generateDexHeader {
+    doLast {
+        def dexFiles = fileTree(dir: "$buildDir/intermediates/dex", include: "**/classes.dex").files
+        def dexFile = dexFiles.find { it.exists() }
+        def outputFile = file("src/main/jni/overlay_dex.h")
+        if (dexFile) {
+            def bytes = dexFile.bytes
+            def sb = new StringBuilder()
+            sb.append("#pragma once\n// Auto-generated from classes.dex - DO NOT EDIT\n#include <cstddef>\n")
+            sb.append("static const unsigned char overlay_dex[] = {\n")
+            for (int i = 0; i < bytes.length; i++) {
+                if (i % 16 == 0) sb.append("    ")
+                sb.append(String.format("0x%02X", bytes[i] & 0xFF))
+                if (i < bytes.length - 1) sb.append(",")
+                if (i % 16 == 15) sb.append("\n")
+            }
+            sb.append("\n};\n")
+            sb.append("static const unsigned int overlay_dex_len = ${bytes.length};\n")
+            outputFile.text = sb.toString()
+            println "Generated overlay_dex.h from ${dexFile.name} (${bytes.length} bytes)"
+        } else {
+            outputFile.text = "#pragma once\n// placeholder - regenerated after dex build\n#include <cstddef>\nstatic const unsigned char overlay_dex[] = {0};\nstatic const unsigned int overlay_dex_len = 1;\n"
+            println "No dex found yet, using placeholder overlay_dex.h"
+        }
+    }
+}
+
+tasks.whenTaskAdded { task ->
+    if (task.name.startsWith("externalNativeBuild")) {
+        task.dependsOn generateDexHeader
+    }
+}

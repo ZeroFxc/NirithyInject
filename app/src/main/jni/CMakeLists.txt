@@ -41,6 +41,7 @@ set(ASMJIT_STATIC TRUE)
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(LOCAL_SRC_FILES
         Main.cpp
+        OverlayLoader.cpp
         Menu/ImGui.cpp
         Menu/Fonts.cpp
         Menu/VulkanHook.cpp

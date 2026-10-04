@@ -26,6 +26,9 @@
 #include <atomic>
 #include <cstdint>
 
+// OverlayLoader: 用 InMemoryDexClassLoader 加载嵌入的 dex，反射启动 Java SurfaceView overlay
+extern bool OverlayLoader_start();
+
 void logcatJson(nlohmann::ordered_json &json)
 {
     auto str = json.dump(4, '#');
@@ -857,6 +860,22 @@ void *hack_thread(void *arg)
 
     LOGI("pthread created");
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // 优先尝试 Java SurfaceView overlay（InMemoryDexClassLoader + OverlayHelper）
+    // 这种方式不依赖游戏的渲染 API（Vulkan/GLES 都能显示），是 IL2CPP MCP 等成熟工具的方案
+    LOGI("OverlayLoader_start begin");
+    bool javaOk = OverlayLoader_start();
+    LOGI("OverlayLoader_start result=%d", (int)javaOk);
+
+    if (javaOk)
+    {
+        useJava = true;
+        LOGI("java overlay mode: waiting for onSurfaceCreate from GLSurfaceView");
+        // on_init 需要在 GL 线程里执行（setupMenu 里调用），这里不需要做更多
+        return nullptr;
+    }
+
+    // Java overlay 失败，回退到 Vulkan hook 方案
     LOGINT(useJava);
     LOGI("initVulkanHooks begin");
     initVulkanHooks();
@@ -874,6 +893,7 @@ void *hack_thread(void *arg)
 
 extern int glWidth;
 extern int glHeight;
+
 extern "C"
 {
     JNIEXPORT void JNICALL Java_imgui_il2cpp_tool_NativeMethods_onDrawFrame(JNIEnv *env, jclass clazz)
@@ -885,13 +905,9 @@ extern "C"
                                                                                  jint height)
     {
         LOGD(__FUNCTION__);
-        static bool once = true;
-        if (once)
-        {
-            glWidth = width;
-            glHeight = height;
-            LOGD("glWidth = %d, glHeight = %d", glWidth, glHeight);
-        }
+        glWidth = width;
+        glHeight = height;
+        LOGD("glWidth = %d, glHeight = %d", glWidth, glHeight);
         setupMenu();
     }
 
@@ -899,6 +915,29 @@ extern "C"
     {
         LOGD(__FUNCTION__);
         initModMenu((void *)draw_thread, (void *)on_init, useJava);
+    }
+
+    // OverlayHelper 调用的 touch 事件入口
+    JNIEXPORT void JNICALL Java_imgui_il2cpp_tool_OverlayHelper_nativeOnTouch(
+        JNIEnv *env, jclass clazz, jint action, jfloat x, jfloat y, jint pointerId, jlong eventTime)
+    {
+        ImGuiIO &io = ImGui::GetIO();
+        io.AddMouseSourceEvent(ImGuiMouseSource_TouchScreen);
+        switch (action & 0xFF)
+        {
+        case 0: // ACTION_DOWN
+            io.AddMousePosEvent(x, y);
+            io.AddMouseButtonEvent(0, true);
+            break;
+        case 2: // ACTION_MOVE
+            io.AddMousePosEvent(x, y);
+            break;
+        case 1: // ACTION_UP
+        case 3: // ACTION_CANCEL
+            io.AddMouseButtonEvent(0, false);
+            io.AddMousePosEvent(-1e30f, -1e30f);
+            break;
+        }
     }
 }
 
