@@ -216,6 +216,9 @@ static int gotHookPhdrCallback(struct dl_phdr_info *info, size_t size, void *dat
     if (pageSize <= 0)
         pageSize = 4096;
 
+    // 调试：打印每个应用库的 GOT 符号数量，确认是否被扫描到
+    LOGI("GOT scan: %s (%zu PLT entries)", info->dlpi_name, count);
+
     for (size_t i = 0; i < count; i++)
     {
         const char *symName = nullptr;
