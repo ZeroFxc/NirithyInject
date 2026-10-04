@@ -2114,11 +2114,11 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
             for (auto m : klass->getMethods())
                 methods.push_back({m, m->getParamsInfo()});
         }
-        // 树状层级：缩进 + 左侧竖线 + 每个方法前横线，明确父子级关系
-        ImGui::Indent(20);
-        ImVec2 listStart = ImGui::GetCursorScreenPos();
-        float treeLineX = listStart.x - 12;
-        ImU32 treeColor = ImGui::GetColorU32(ImGuiCol_Border);
+        // git风格树状线：每个子节点用├─/└─连接符，颜色随主题Separator
+        ImU32 treeColor = ImGui::GetColorU32(ImGuiCol_Separator);
+        const float treeIndent = 18.0f;
+        const float lineXOffset = 7.0f;
+        ImDrawList *dl = ImGui::GetWindowDrawList();
 
         ImGuiListClipper clipper;
         clipper.Begin((int)methods.size());
@@ -2126,24 +2126,30 @@ void ClassesTab::ClassViewer(Il2CppClass *klass)
         {
             for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
             {
-                // 每个方法节点前画横线连接到竖线
                 ImVec2 itemStart = ImGui::GetCursorScreenPos();
-                float lineY = itemStart.y + ImGui::GetFrameHeight() * 0.5f;
-                ImGui::GetWindowDrawList()->AddLine(
-                    ImVec2(treeLineX, lineY), ImVec2(itemStart.x, lineY), treeColor, 1.0f);
+                float rowH = ImGui::GetFrameHeight();
+                float midY = itemStart.y + rowH * 0.5f;
+                float lineX = itemStart.x + lineXOffset;
+                float textX = itemStart.x + treeIndent;
+                bool isLast = (i == (int)methods.size() - 1);
+
+                // 横线：从竖线到文字
+                dl->AddLine(ImVec2(lineX, midY), ImVec2(textX, midY), treeColor, 1.0f);
+                // 竖线：非最后一个贯穿整行(├)，最后一个只到中间(└)
+                if (!isLast)
+                    dl->AddLine(ImVec2(lineX, itemStart.y), ImVec2(lineX, itemStart.y + rowH), treeColor, 1.0f);
+                else
+                    dl->AddLine(ImVec2(lineX, itemStart.y), ImVec2(lineX, midY), treeColor, 1.0f);
+
+                // 光标右移，给树状线留空间
+                ImGui::SetCursorScreenPos(ImVec2(textX, itemStart.y));
 
                 auto &[method, paramsInfo] = methods[i];
                 ImGui::PushID(method + i);
                 MethodViewer(klass, method, paramsInfo);
-                ImGui::Separator();
                 ImGui::PopID();
             }
         }
-        // 左侧竖线贯穿方法列表可见区域
-        ImVec2 listEnd = ImGui::GetCursorScreenPos();
-        ImGui::GetWindowDrawList()->AddLine(
-            ImVec2(treeLineX, listStart.y), ImVec2(treeLineX, listEnd.y), treeColor, 1.0f);
-        ImGui::Unindent(20);
     }
     ImGui::PopID();
 }
