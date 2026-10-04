@@ -1,6 +1,6 @@
 id=il2cpp_tool
-name=IL2CPP Tool
+name=NirithyTool
 version=v1.0.0
 versionCode=100
-author=mIsmanXP
+author=Nirithy
 description=Zygisk IL2CPP overlay (ImGui GLES + Vulkan). Select target packages in the WebUI.
