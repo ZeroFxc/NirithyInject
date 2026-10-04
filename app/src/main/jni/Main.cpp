@@ -898,6 +898,17 @@ extern "C"
 {
     JNIEXPORT void JNICALL Java_imgui_il2cpp_tool_NativeMethods_onDrawFrame(JNIEnv *env, jclass clazz)
     {
+        static std::atomic<uint64_t> drawCallCount{0};
+        static auto lastDrawLog = std::chrono::steady_clock::now();
+        uint64_t dc = drawCallCount.fetch_add(1);
+        if (dc == 0)
+            LOGI("onDrawFrame: FIRST CALL glWidth=%d glHeight=%d", glWidth, glHeight);
+        auto now = std::chrono::steady_clock::now();
+        if (dc % 300 == 0 || std::chrono::duration_cast<std::chrono::seconds>(now - lastDrawLog).count() >= 5)
+        {
+            lastDrawLog = now;
+            LOGI("onDrawFrame: heartbeat call=%llu glSize=%dx%d", (unsigned long long)dc, glWidth, glHeight);
+        }
         internalDrawMenu(glWidth, glHeight);
     }
 

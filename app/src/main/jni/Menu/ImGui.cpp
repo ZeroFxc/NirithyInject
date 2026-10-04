@@ -589,6 +589,9 @@ void menuStyle(int theme)
 
 void setupMenu()
 {
+    LOGI("setupMenu: enter, isInitialized=%d glContextLost=%d glWidth=%d glHeight=%d",
+         (int)isInitialized, (int)g_glContextLost, glWidth, glHeight);
+
     if (isInitialized)
     {
         // GL 上下文丢失（Activity 切换 / GLSurfaceView 重建）：重新初始化 OpenGL3 backend
@@ -609,6 +612,7 @@ void setupMenu()
         LOGI("%s", (char *)OBFUSCATE("Failed to create context"));
         return;
     }
+    LOGI("setupMenu: ImGui context created");
 
     ImGuiIO &io = ImGui::GetIO();
     io.DisplaySize = ImVec2((float)glWidth, (float)glHeight);
@@ -617,8 +621,11 @@ void setupMenu()
     // Android overlay 单 GL 上下文，imgui_impl_android 不支持独立 OS 窗口。
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
+    LOGI("setupMenu: ImGui_ImplAndroid_Init...");
     ImGui_ImplAndroid_Init(nullptr);
+    LOGI("setupMenu: ImGui_ImplOpenGL3_Init (GLES3 #version 300 es)...");
     ImGui_ImplOpenGL3_Init("#version 300 es");
+    LOGI("setupMenu: backends initialized");
 
     loadOverlayFonts();
 
@@ -627,16 +634,21 @@ void setupMenu()
     menuStyle(0);
 
     isInitialized = true;
-    LOGI("setup done.");
+    LOGI("setup done. (glWidth=%d glHeight=%d)", glWidth, glHeight);
 
     // IL2CPP 初始化放后台线程，不阻塞 GL 渲染（参考 IL2CPP MCP 的双线程架构）
     if (onInitAddr)
     {
+        LOGI("setupMenu: starting on_init background thread");
         std::thread([] {
             LOGI("on_init thread start");
             onInitAddr();
             LOGI("on_init thread done");
         }).detach();
+    }
+    else
+    {
+        LOGW("setupMenu: onInitAddr is null, IL2CPP init will not run");
     }
 }
 
@@ -655,8 +667,28 @@ static void applyOverlayGlState()
 
 void internalDrawMenu(int width, int height)
 {
+    static std::atomic<uint64_t> frameCount{0};
+    static auto lastLogTime = std::chrono::steady_clock::now();
+    uint64_t fc = frameCount.fetch_add(1);
+
+    if (fc == 0)
+        LOGI("internalDrawMenu: FIRST FRAME (%dx%d), isInitialized=%d", width, height, (int)isInitialized);
+
     if (!isInitialized)
+    {
+        if (fc % 60 == 0)
+            LOGI("internalDrawMenu: frame=%llu but isInitialized=false, skip", (unsigned long long)fc);
         return;
+    }
+
+    // 每 300 帧（约5秒@60fps）打一次心跳，证明渲染循环在跑
+    auto now = std::chrono::steady_clock::now();
+    if (fc % 300 == 0 || std::chrono::duration_cast<std::chrono::seconds>(now - lastLogTime).count() >= 5)
+    {
+        lastLogTime = now;
+        LOGI("internalDrawMenu: heartbeat frame=%llu size=%dx%d drawData=%p",
+             (unsigned long long)fc, width, height, (void *)ImGui::GetDrawData());
+    }
 
     ImGui::GetIO().DisplaySize = ImVec2((float)width, (float)height);
     ImGui_ImplOpenGL3_NewFrame();
@@ -668,6 +700,14 @@ void internalDrawMenu(int width, int height)
         menuAddress();
 
     ImGui::Render();
+
+    ImDrawData *drawData = ImGui::GetDrawData();
+    if (fc == 0)
+        LOGI("internalDrawMenu: after Render, CmdListsCount=%d TotalVtxCount=%d TotalIdxCount=%d Valid=%d",
+             drawData ? drawData->CmdListsCount : -1,
+             drawData ? drawData->TotalVtxCount : -1,
+             drawData ? drawData->TotalIdxCount : -1,
+             drawData ? drawData->Valid : 0);
 
     GLboolean srgb = GL_FALSE;
     glGetBooleanv(GL_FRAMEBUFFER_SRGB, &srgb);
@@ -683,7 +723,7 @@ void internalDrawMenu(int width, int height)
         glClear(GL_COLOR_BUFFER_BIT);
     }
 
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    ImGui_ImplOpenGL3_RenderDrawData(drawData);
 
     if (srgb)
     {
