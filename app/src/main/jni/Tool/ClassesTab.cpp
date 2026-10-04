@@ -2420,12 +2420,10 @@ void ClassesTab::Draw(int index, bool closeable)
             ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
             if (ImGui::Begin(listWinId, nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_HorizontalScrollbar))
             {
-                ImGuiListClipper clipper;
-                clipper.Begin((int)filteredClasses.size());
-                while (clipper.Step())
+                // 类列表直接遍历：未展开类节点只有TreeNodeEx成本极低，展开的类才进ClassViewer渲染方法列表。
+                // 不用clipper避免展开类节点行高变化导致顶部边界抽搐。
+                for (int i = 0; i < (int)filteredClasses.size(); i++)
                 {
-                    for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
-                    {
                         auto klass = filteredClasses[i];
 
                         bool isValueType = Il2cpp::GetClassType(klass)->isValueType();
@@ -2473,7 +2471,6 @@ void ClassesTab::Draw(int index, bool closeable)
                             pushedColor = 0;
                         }
                     }
-                }
                 ImGui::ScrollWhenDraggingOnVoid();
             }
             ImGui::End();
