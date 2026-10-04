@@ -99,54 +99,84 @@ public class OverlayHelper {
         sStarted = true;
         new Handler(Looper.getMainLooper()).post(() -> {
             try {
-                Activity activity = findResumedActivity();
-                if (activity != null) {
-                    Application app = activity.getApplication();
-                    sLifecycleCallbacks = new Application.ActivityLifecycleCallbacks() {
-                        @Override public void onActivityCreated(Activity a, Bundle savedInstanceState) {}
-                        @Override public void onActivityStarted(Activity a) {}
-                        @Override public void onActivityResumed(Activity a) {
-                            android.util.Log.i("MXP", "onActivityResumed: " + a.getClass().getSimpleName()
-                                    + " current=" + (sCurrentActivity != null ? sCurrentActivity.getClass().getSimpleName() : "null")
-                                    + " glView=" + (sGlView != null ? "attached" : "null"));
-                            if (a != sCurrentActivity || sGlView == null) {
-                                removeOverlay();
-                                sCurrentActivity = a;
-                                // 等 DecorView 布局完成后再创建，避免拿不到 surface
-                                // 用 postDelayed 确保 Activity 完全 resume（参考 IL2CPP MCP 的 waiting for activity resume）
-                                a.getWindow().getDecorView().postDelayed(() -> {
-                                    if (sCurrentActivity == a) {
-                                        createOverlay(a);
-                                    } else {
-                                        android.util.Log.i("MXP", "onActivityResumed: activity changed before createOverlay, skip");
-                                    }
-                                }, 100);
-                            }
-                        }
-                        @Override public void onActivityPaused(Activity a) {}
-                        @Override public void onActivityStopped(Activity a) {}
-                        @Override public void onActivitySaveInstanceState(Activity a, Bundle outState) {}
-                        @Override public void onActivityDestroyed(Activity a) {
-                            if (a == sCurrentActivity) {
-                                android.util.Log.i("MXP", "onActivityDestroyed: " + a.getClass().getSimpleName());
-                                removeOverlay();
-                                sCurrentActivity = null;
-                            }
-                        }
-                    };
-                    app.registerActivityLifecycleCallbacks(sLifecycleCallbacks);
-                    sCurrentActivity = activity;
-                    createOverlay(activity);
-                } else {
-                    // Activity 还没准备好，延迟重试
+                // 获取 Application（通过当前 Activity 或反射）
+                Application app = getApplication();
+                if (app == null) {
+                    android.util.Log.w("MXP", "start: Application not available, retry in 500ms");
                     sStarted = false;
                     new Handler(Looper.getMainLooper()).postDelayed(() -> start(), 500);
+                    return;
+                }
+
+                // 注册 Activity 生命周期回调（参考 IL2CPP MCP：overlay bridge ready; waiting for a foreground Activity）
+                sLifecycleCallbacks = new Application.ActivityLifecycleCallbacks() {
+                    @Override public void onActivityCreated(Activity a, Bundle savedInstanceState) {}
+                    @Override public void onActivityStarted(Activity a) {}
+                    @Override public void onActivityResumed(Activity a) {
+                        android.util.Log.i("MXP", "onActivityResumed: " + a.getClass().getSimpleName()
+                                + " current=" + (sCurrentActivity != null ? sCurrentActivity.getClass().getSimpleName() : "null")
+                                + " glView=" + (sGlView != null ? "attached" : "null"));
+                        bindToActivity(a);
+                    }
+                    @Override public void onActivityPaused(Activity a) {}
+                    @Override public void onActivityStopped(Activity a) {}
+                    @Override public void onActivitySaveInstanceState(Activity a, Bundle outState) {}
+                    @Override public void onActivityDestroyed(Activity a) {
+                        if (a == sCurrentActivity) {
+                            android.util.Log.i("MXP", "onActivityDestroyed: " + a.getClass().getSimpleName());
+                            removeOverlay();
+                            sCurrentActivity = null;
+                        }
+                    }
+                };
+                app.registerActivityLifecycleCallbacks(sLifecycleCallbacks);
+                android.util.Log.i("MXP", "overlay bridge ready; waiting for a foreground Activity");
+
+                // 手动绑定到当前 resumed Activity（registerCallbacks 不会对已 resumed 的 Activity 触发回调）
+                Activity activity = findResumedActivity();
+                if (activity != null) {
+                    bindToActivity(activity);
+                } else {
+                    android.util.Log.i("MXP", "start: no resumed activity yet, waiting for onActivityResumed");
                 }
             } catch (Exception e) {
                 e.printStackTrace();
                 sStarted = false;
             }
         });
+    }
+
+    /** 绑定 overlay 到指定 Activity：移除旧 overlay，延迟创建新 overlay */
+    private static void bindToActivity(Activity a) {
+        if (a == sCurrentActivity && sGlView != null) {
+            android.util.Log.i("MXP", "bindToActivity: already bound to " + a.getClass().getSimpleName());
+            return;
+        }
+        removeOverlay();
+        sCurrentActivity = a;
+        // 等 DecorView 布局完成后再创建，避免拿不到 surface
+        // 用 postDelayed 确保 Activity 完全 resume（参考 IL2CPP MCP 的 waiting for activity resume）
+        a.getWindow().getDecorView().postDelayed(() -> {
+            if (sCurrentActivity == a) {
+                createOverlay(a);
+            } else {
+                android.util.Log.i("MXP", "bindToActivity: activity changed before createOverlay, skip");
+            }
+        }, 100);
+    }
+
+    /** 通过反射获取 Application（ActivityThread.currentApplication） */
+    private static Application getApplication() {
+        try {
+            Class<?> activityThreadClass = Class.forName("android.app.ActivityThread");
+            Object activityThread = activityThreadClass.getMethod("currentActivityThread").invoke(null);
+            Method currentApplicationMethod = activityThreadClass.getMethod("currentApplication");
+            return (Application) currentApplicationMethod.invoke(activityThread);
+        } catch (Exception e) {
+            // 回退：通过 findResumedActivity 获取
+            Activity activity = findResumedActivity();
+            return activity != null ? activity.getApplication() : null;
+        }
     }
 
     private static void createOverlay(Activity activity) {
