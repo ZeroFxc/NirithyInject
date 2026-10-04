@@ -1,8 +1,10 @@
 package imgui.il2cpp.tool;
 
 import android.app.Activity;
+import android.app.Application;
 import android.content.Context;
 import android.graphics.PixelFormat;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Display;
@@ -19,11 +21,14 @@ import java.util.Map;
  * 注入场景下的 overlay 入口。
  * 通过反射获取当前 Activity，在主线程创建全屏透明 GLSurfaceView，
  * 由 GlViewWrapper 的 Renderer 回调驱动 native OpenGL 渲染。
+ * 监听 Activity 生命周期，Activity 切换时自动重新绑定 overlay。
  */
 public class OverlayHelper {
 
     private static GlViewWrapper sGlView;
+    private static Activity sCurrentActivity;
     private static boolean sStarted = false;
+    private static Application.ActivityLifecycleCallbacks sLifecycleCallbacks;
 
     /** 通过反射获取当前栈顶 Activity（未 paused 的） */
     private static Activity getCurrentActivity() {
@@ -45,7 +50,6 @@ public class OverlayHelper {
                     continue;
                 if (fallback == null)
                     fallback = activity;
-                // 优先返回未 paused 的 Activity（栈顶）
                 try {
                     Field pausedField = recordClass.getDeclaredField("paused");
                     pausedField.setAccessible(true);
@@ -66,17 +70,47 @@ public class OverlayHelper {
         if (sStarted)
             return;
         sStarted = true;
-        // 延迟到主线程执行，等待 Activity 就绪
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            Activity activity = getCurrentActivity();
-            if (activity == null) {
-                // Activity 还没准备好，重试
+        new Handler(Looper.getMainLooper()).post(() -> {
+            // 注册 Activity 生命周期回调，在 onResume 时绑定 overlay
+            try {
+                Activity activity = getCurrentActivity();
+                if (activity != null) {
+                    Application app = activity.getApplication();
+                    sLifecycleCallbacks = new Application.ActivityLifecycleCallbacks() {
+                        @Override public void onActivityCreated(Activity a, Bundle savedInstanceState) {}
+                        @Override public void onActivityStarted(Activity a) {}
+                        @Override public void onActivityResumed(Activity a) {
+                            // 前台 Activity 变化时重新绑定 overlay
+                            if (a != sCurrentActivity || sGlView == null) {
+                                removeOverlay();
+                                sCurrentActivity = a;
+                                createOverlay(a);
+                            }
+                        }
+                        @Override public void onActivityPaused(Activity a) {}
+                        @Override public void onActivityStopped(Activity a) {}
+                        @Override public void onActivitySaveInstanceState(Activity a, Bundle outState) {}
+                        @Override public void onActivityDestroyed(Activity a) {
+                            if (a == sCurrentActivity) {
+                                removeOverlay();
+                                sCurrentActivity = null;
+                            }
+                        }
+                    };
+                    app.registerActivityLifecycleCallbacks(sLifecycleCallbacks);
+                    // 立即在当前 Activity 上创建
+                    sCurrentActivity = activity;
+                    createOverlay(activity);
+                } else {
+                    // Activity 还没准备好，延迟重试
+                    sStarted = false;
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> start(), 500);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
                 sStarted = false;
-                new Handler(Looper.getMainLooper()).postDelayed(() -> start(), 500);
-                return;
             }
-            createOverlay(activity);
-        }, 300);
+        });
     }
 
     private static void createOverlay(Activity activity) {
@@ -88,7 +122,6 @@ public class OverlayHelper {
 
             Context displayContext = activity.createDisplayContext(display);
             sGlView = new GlViewWrapper(displayContext);
-            // 触摸事件传给 native
             sGlView.setOnTouchListener((v, event) -> {
                 nativeOnTouch(event.getAction(), event.getX(), event.getY(),
                         event.getPointerId(0), event.getEventTime());
@@ -109,7 +142,17 @@ public class OverlayHelper {
             wm.addView(sGlView, lp);
         } catch (Exception e) {
             e.printStackTrace();
-            sStarted = false;
+        }
+    }
+
+    private static void removeOverlay() {
+        if (sGlView != null && sCurrentActivity != null) {
+            try {
+                WindowManager wm = sCurrentActivity.getWindowManager();
+                wm.removeView(sGlView);
+            } catch (Exception ignored) {
+            }
+            sGlView = null;
         }
     }
 
