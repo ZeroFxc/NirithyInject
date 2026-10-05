@@ -1,9 +1,0 @@
-ext {
-    moduleLibraryName = "modmenu"
-    magiskModuleId = "imgui_modmenu"
-    moduleName = "ImGui Mod Menu"
-    moduleAuthor = "Reveny"
-    moduleDescription = "github.com/reveny"
-    moduleVersion = "v1.0.0"
-    moduleVersionCode = 1
-}

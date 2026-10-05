@@ -163,7 +163,17 @@ static bool hookAddr(void *addr, void *hook, void **orig, const char *tag)
 
 // 线程局部重入标志：若驱动把 eglSwapBuffers 实现为内部调用 WithDamage 变体（或反之），
 // 一次交换会嵌套触发两个钩子；用该标志保证同一线程一次交换的调用链中只绘制一次
-static thread_local bool g_inSwap = false;
+// GL 上下文丢失标志：Activity 切换导致 GLSurfaceView 重建时，旧 EGL 上下文里的
+// shader/texture 在新上下文中无效，需要重新初始化 ImGui_ImplOpenGL3。
+// 用 atomic 保证主线程写入后 GL 线程立即可见。
+static std::atomic<bool> g_glContextLost{false};
+
+// 由 OverlayHelper.nativeOnSurfaceDestroyed 调用（Main.cpp 中转）
+void markGlContextLost()
+{
+    LOGI("markGlContextLost: EGL surface destroyed, OpenGL3 backend will reinit on next surface");
+    g_glContextLost.store(true, std::memory_order_release);
+}
 
 static EGLBoolean swap_damage_hook(EGLDisplay dpy, EGLSurface surf, EGLint *rects, EGLint n)
 {

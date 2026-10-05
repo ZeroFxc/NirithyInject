@@ -1,4 +1,6 @@
-// Native Vulkan overlay: hook vkQueuePresentKHR and draw ImGui on the swapchain.
+// Vulkan overlay support for Unity + Vulkan (and other Vulkan games).
+// The hook is installed only on API 26+ (Vulkan required). On lower API we fall back to Java SurfaceView overlay.
+// This is the main rendering hook for Vulkan games.
 // Loaded via Dobby from libvulkan.so. Does not use Java SurfaceView.
 
 #include "VulkanHook.h"
@@ -39,7 +41,14 @@ void setupMenu();
 void internalDrawMenu(int width, int height);
 
 static void *g_vulkanLib = nullptr;
-static std::atomic<bool> g_vkActive{false};
+static bool g_vulkanOverlayActive = false;
+
+void initVulkanHooks(); // forward
+
+bool isVulkanOverlayActive()
+{
+    return g_vulkanOverlayActive;
+}
 static std::atomic<bool> g_hooksInstalled{false};
 
 #define VK_FN(ret, name, args) static PFN_##name p##name = nullptr;
@@ -638,8 +647,7 @@ static VkResult hooked_vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *
     submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &f.cmd;
-    // Same-queue in-order submit: overlay finishes before the original present.
-    pvkQueueSubmit(queue, 1, &submit, f.fence);
+    pvkQueueSubmit(queue, 1, &submit, f.fence);   // 关键：提交 fence 等待 render thread 完成
 
     return orig_vkQueuePresentKHR(queue, info);
 }
